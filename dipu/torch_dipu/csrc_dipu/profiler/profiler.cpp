@@ -2,16 +2,24 @@
 
 #include <ThreadUtil.h>
 #include <cstdio>
-#include <fstream>
+#include <memory>
+#include <utility>
 
 #include <c10/util/Exception.h>
+#include <c10/util/string_view.h>
 #include <torch/csrc/profiler/util.h>
+
+#include "csrc_dipu/profiler/CorrelationIDManager.h"
 
 namespace dipu {
 
 namespace profile {
 
 static const int32_t DEFAULT_FLUSH_READY_INTERVAL = 1000;
+
+ObjectPool<RecordCreator> record_creator_pool;
+ObjectPool<DeviceRecordCreator> device_record_creator_pool;
+ObjectPool<RecordBlockCreator> record_block_creator_pool;
 
 class DeviceEvent final {
  private:
@@ -265,22 +273,20 @@ void abandonAllRecords() {
   resetId();
 }
 
-RecordCreator::RecordCreator(const string_t& name, size_t opId,
-                             uint64_t linkCorrelationId,
-                             const ExtraRecordInfo& extraInfo) {
+void RecordCreator::initialize(string_t name, size_t opId,
+                               uint64_t linkCorrelationId,
+                               ExtraRecordInfo extraInfo) {
   if (isEnable()) {
-    name_ = name;
+    name_ = std::move(name);
     opId_ = opId;
     begin_ = torch::profiler::impl::getTime();
     end_ = false;
     linkCorrelationId_ = linkCorrelationId;
-    extraInfo_ = extraInfo;
+    extraInfo_ = std::move(extraInfo);
   }
 }
 
-RecordCreator::~RecordCreator() { end(); }
-
-void RecordCreator::end() {
+void RecordCreator::end() noexcept {
   if (!end_) {
     RecordsImpl::get().addRecord(
         Record{name_, opId_, begin_,
@@ -292,15 +298,15 @@ void RecordCreator::end() {
   end_ = true;
 }
 
-DeviceRecordCreator::DeviceRecordCreator(string_t name, deviceStream_t stream,
-                                         int streamId, size_t opId,
-                                         uint64_t linkCorrelationId,
-                                         const ExtraRecordInfo& extraInfo) {
+void DeviceRecordCreator::initialize(string_t name, deviceStream_t stream,
+                                     int streamId, size_t opId,
+                                     uint64_t linkCorrelationId,
+                                     ExtraRecordInfo extraInfo) {
   if (isEnable()) {
     DeviceRecordsImpl::get().ensureSetup(stream);
-    name_ = name;
+    name_ = std::move(name);
     opId_ = opId;
-    extraInfo_ = extraInfo;
+    extraInfo_ = std::move(extraInfo);
     stream_ = stream;
     streamId_ = streamId;
     pStart_.reset(new DeviceEvent());
@@ -311,9 +317,7 @@ DeviceRecordCreator::DeviceRecordCreator(string_t name, deviceStream_t stream,
   }
 }
 
-DeviceRecordCreator::~DeviceRecordCreator() { end(); }
-
-void DeviceRecordCreator::end() {
+void DeviceRecordCreator::end() noexcept {
   if (!end_) {
     TORCH_CHECK(pStart_, "dipu profiler error with pStart_ is not inited");
     TORCH_CHECK(pStop_, "dipu profiler error with pStop_ is not inited");
@@ -329,12 +333,12 @@ void DeviceRecordCreator::end() {
 }
 
 static std::string extraceFunction(const std::string& functionName) {
-  auto start = functionName.find_first_not_of(":");
+  auto start = functionName.find_first_not_of(':');
   if (start == std::string::npos) {
     return "";
   }
 
-  auto end = functionName.find_first_of("(");
+  auto end = functionName.find_first_of('(');
   if (end == std::string::npos) {
     end = functionName.size();
   }
@@ -345,31 +349,24 @@ static std::string extraceFunction(const std::string& functionName) {
   return functionName.substr(start, end - start);
 }
 
-RecordBlockCreator::RecordBlockCreator(string_t name,
-                                       const ExtraRecordInfo& extraInfo,
-                                       deviceStream_t stream, int streamId,
-                                       bool enProfile) {
-  if (enProfile && isEnable()) {
-    size_t opId = generateId();
-    uint64_t correlationId =
-        CorrelationIDManager::instance().getCorrelationID();
-    name = extraceFunction(name);
-    pHostRecord_.reset(new RecordCreator("LaunchKernel_" + name, opId,
-                                         correlationId, extraInfo));
-    pDeviceRecord_.reset(new DeviceRecordCreator(name, stream, streamId, opId,
-                                                 correlationId, extraInfo));
-  }
-}
+void RecordBlockCreator::initialize(string_t name, ExtraRecordInfo extraInfo,
+                                    deviceStream_t stream,
+                                    c10::StreamId streamId) {
+  size_t opId = generateId();
+  uint64_t correlationId = CorrelationIDManager::instance().getCorrelationID();
+  name = extraceFunction(name);
 
-void RecordBlockCreator::end() {
-  if (!finish_) {
-    pHostRecord_.reset();
-    pDeviceRecord_.reset();
-  }
-  finish_ = true;
-}
+  RecordCreator* record_creator = record_creator_pool.allocate();
+  record_creator->initialize("LaunchKernel_" + name, opId, correlationId,
+                             extraInfo);
+  pHostRecord_.reset(record_creator);
 
-RecordBlockCreator::~RecordBlockCreator() { end(); }
+  DeviceRecordCreator* device_record_creator =
+      device_record_creator_pool.allocate();
+  device_record_creator->initialize(std::move(name), stream, streamId, opId,
+                                    correlationId, std::move(extraInfo));
+  pDeviceRecord_.reset(device_record_creator);
+}
 
 }  // namespace profile
 
