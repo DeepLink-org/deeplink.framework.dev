@@ -190,6 +190,7 @@ DIOPI_RT_API diopiError_t diopiGeneratorSetState(
 DIOPI_RT_API diopiError_t diopiRecordStart(const char* record_name,
                                            void** record) {
   RecordBlockCreator* creator = record_block_creator_pool.allocate();
+  new (creator) RecordBlockCreator();
   creator->initialize(record_name);
   *record = creator;
   return diopiSuccess;

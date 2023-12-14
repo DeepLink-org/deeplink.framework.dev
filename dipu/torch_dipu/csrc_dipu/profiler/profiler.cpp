@@ -357,12 +357,14 @@ void RecordBlockCreator::initialize(string_t name, ExtraRecordInfo extraInfo,
   name = extraceFunction(name);
 
   RecordCreator* record_creator = record_creator_pool.allocate();
+  new (record_creator) RecordCreator();
   record_creator->initialize("LaunchKernel_" + name, opId, correlationId,
                              extraInfo);
   pHostRecord_.reset(record_creator);
 
   DeviceRecordCreator* device_record_creator =
       device_record_creator_pool.allocate();
+  new (device_record_creator) DeviceRecordCreator();
   device_record_creator->initialize(std::move(name), stream, streamId, opId,
                                     correlationId, std::move(extraInfo));
   pDeviceRecord_.reset(device_record_creator);

@@ -29,6 +29,7 @@ class ObjectPool final {
 
   void free(T* t) {
     bool full = false;
+    t->~T();
     {
       std::lock_guard<std::mutex> lck(mtx_);
       if (queue_.size() < max_object_size_) {
@@ -39,15 +40,15 @@ class ObjectPool final {
     }
 
     if (full) {
+      new (t) T();
       delete t;
-    } else {
-      t->~T();
     }
   }
 
   ~ObjectPool() {
     while (!queue_.empty()) {
       T* t = queue_.front();
+      new (t) T();
       queue_.pop();
       delete t;
     }
