@@ -1,6 +1,10 @@
 // Copyright (c) 2023, DeepLink.
 #include "./helpfunc.hpp"
 
+#include <diopi/diopirt.h>
+#include <diopi/functions_ext.h>
+
+#include "csrc_dipu/diopirt/diopirt_impl.h"
 #ifndef WIN32
 #include <mutex>
 #include <pthread.h>
@@ -10,6 +14,29 @@ namespace dipu {
 bool isDeviceTensor(const at::Tensor& tensor) {
   // same as tensor.device().type()
   return tensor.unsafeGetTensorImpl()->device_type() == dipu::DIPU_DEVICE_TYPE;
+}
+
+at::Tensor format_cast(at::Tensor& tensor, diopiMemoryFormat_t target_format) {
+  TORCH_CHECK(isDeviceTensor(tensor), "only device tensor support this api.");
+  TORCH_CHECK(::diopiFormatCast, "diopi not support this api.");
+  ::diopiTensorHandle_t in = dipu::diopi_helper::toDiopiTensorHandle(tensor);
+  ::diopiContext context(dipu::getCurrentDIPUStream().rawstream());
+  at::Tensor t = at::empty({0}, tensor.options());
+  ::diopiTensorHandle_t out = dipu::diopi_helper::toDiopiTensorHandle(t);
+  ::diopiFormatCast(&context, out, in, target_format);
+  return t;
+}
+
+diopiMemoryFormat_t get_format(const at::Tensor& tensor) {
+  if (!isDeviceTensor(tensor)) {
+    return diopiMemoryFormat_t::Undefined;
+  }
+  TORCH_CHECK(::diopiGetFormat, "diopi not support this api.");
+  ::diopiContext context(dipu::getCurrentDIPUStream().rawstream());
+  ::diopiConstTensorHandle_t input = dipu::diopi_helper::toDiopiTensorHandle(tensor);
+  diopiMemoryFormat_t format;
+  ::diopiGetFormat(&context, input, &format);
+  return format;
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
