@@ -67,12 +67,19 @@ std::tuple<std::vector<at::Tensor>, c10::intrusive_ptr<Work>> allreduce_dipu_(
     const c10::optional<at::Tensor>& sparse_indices,
 #endif
     int64_t timeout) {
+  for (size_t i = 0; i < tensors.size(); i++) {
+    std::cout << __FUNCTION__ << ":tensors[" << i << "]" << tensors.at(i).options() << std::endl;
+  }
+  std::cout << "process_group:" << process_group.get() << std::endl;
+
+
   auto tensor_vec = tensors.vec();
   auto work =
       process_group->getBackend(dipu::DIPU_DEVICE_TYPE)
           ->allreduce(
               tensor_vec,
               AllreduceOptions{*reduce_op, std::chrono::milliseconds(timeout)});
+
 
   // Return input tensors as output tensors to make inplace allreduce look like
   // a functional API, so that make_fx can correctly build the dependencies in
