@@ -176,29 +176,33 @@ class DIPU_API ProcessGroupDICL : public Backend {
 
 #if DIPU_TORCH_VERSION >= 20100
   virtual void startCoalescing() {
-    TORCH_WARN_ONCE("startCoalescing" ,
-        " interface is not yet impled. Please note that this may have unexpected consequences.");
+    TORCH_WARN_ONCE("startCoalescing",
+                    " interface is not yet impled. Please note that this may "
+                    "have unexpected consequences.");
   }
 
-  virtual c10::intrusive_ptr<Work> endCoalescing() override{
-    TORCH_WARN_ONCE("endCoalescing" ,
-        " interface is not yet impled. Please note that this may have unexpected consequences.");
+  virtual c10::intrusive_ptr<Work> endCoalescing() override {
+    TORCH_WARN_ONCE("endCoalescing",
+                    " interface is not yet impled. Please note that this may "
+                    "have unexpected consequences.");
     std::vector<std::shared_ptr<DICLComm>> comm;
     auto work = c10::make_intrusive<ProcessGroupDICL::WorkDICL>(
-      comm, blockingWait_, opTimeout_);
+        comm, blockingWait_, opTimeout_);
     return work;
   }
 #else
   virtual void startCoalescing() {
     // no-op for backends that have not implemented startCoalescing
-    TORCH_WARN_ONCE("startCoalescing" ,
-        " interface is not yet impled. Please note that this may have unexpected consequences.");
+    TORCH_WARN_ONCE("startCoalescing",
+                    " interface is not yet impled. Please note that this may "
+                    "have unexpected consequences.");
   }
 
   virtual void endCoalescing(
       std::vector<c10::intrusive_ptr<Work>>& /* reqs */) {
-      TORCH_WARN_ONCE("endCoalescing" ,
-        " interface is not yet impled. Please note that this may have unexpected consequences.");
+    TORCH_WARN_ONCE("endCoalescing",
+                    " interface is not yet impled. Please note that this may "
+                    "have unexpected consequences.");
   }
 #endif
 
