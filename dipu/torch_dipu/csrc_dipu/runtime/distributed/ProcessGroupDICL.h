@@ -191,13 +191,13 @@ class DIPU_API ProcessGroupDICL : public Backend {
 #else
   virtual void startCoalescing() {
     // no-op for backends that have not implemented startCoalescing
-    TORCH_WARN_ONCE("startCoalescing" ,
+    TORCH_WARN("startCoalescing" ,
         " interface is not yet impled. Please note that this may have unexpected consequences.");
   }
 
   virtual void endCoalescing(
       std::vector<c10::intrusive_ptr<Work>>& /* reqs */) {
-      TORCH_WARN_ONCE("endCoalescing" ,
+      TORCH_WARN("endCoalescing" ,
         " interface is not yet impled. Please note that this may have unexpected consequences.");
   }
 #endif

@@ -28,9 +28,10 @@ class BFCachingAllocatorImpl {
   // Allocation parameters
   //static constexpr size_t kMinAllocationSize = 512;
   static constexpr size_t kMinAllocationSize = 1U << 20U;    // 1MB
-  static constexpr size_t kMaxInternalFragmentation = 1024;
+  static constexpr size_t kMaxInternalFragmentation = 8U << 20U;  // 8MB
   static constexpr size_t kMinExtendSize = 8U << 20U;             // 8MB
-  static constexpr size_t kMaxExtendSize = 4U << 30U;             // 4GB
+  //static constexpr size_t kMaxExtendSize = 1U << 30U;             // 1GB
+  static constexpr size_t kMaxExtendSize = 256U << 20U;             // 1GB
 
   size_t cachedBytes = 0;
   size_t allocatedBytes = 0;
@@ -305,7 +306,6 @@ class BFCachingAllocatorImpl {
     } else {
       if (currBytes > nbytes) {
         currBytes = nbytes;
-        extSize = kMinExtendSize;
         ptr = allocateOnDevice(currBytes);
       }
     }
