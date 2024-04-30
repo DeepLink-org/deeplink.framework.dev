@@ -8,77 +8,80 @@
 #include "acl/acl.h"
 #include "ascend_string.h"
 #include "ge_api.h"
-
+#include "ge_graph.h"
 #include "graph_utils.h"
 
 using namespace ge;
 
 class GEGraphRunner {
  public:
-  explicit GEGraphRunner(int device_id_, const std::string& config_file_path_) : device_id(device_id_), config_file_path(config_file_path_)
-  { 
-    init(); 
+  explicit GEGraphRunner(int device_id, const std::string& config_file_path)
+      : device_id_(device_id),
+        config_file_path_(config_file_path),
+        session_(nullptr) {
+    init();
   }
 
-  explicit GEGraphRunner() {}
+  GEGraphRunner() : device_id_(0), session_(nullptr) {}
 
   void init() {
-    // 1. ge init
-    std::map<AscendString, AscendString> config;
-    std::string device_id_str = std::to_string(device_id);
-    config["ge.exec.deviceId"] = device_id_str.c_str();
+    std::map<ge::AscendString, ge::AscendString> config;
+    config["ge.exec.deviceId"] = std::to_string(device_id_).c_str();
 
     auto kSocVersion = aclrtGetSocName();
     config[ge::ir_option::SOC_VERSION] = kSocVersion;
 
-    auto raw_conf = parse_json_to_map(config_file_path);
+    auto raw_conf = parse_json_to_map(config_file_path_);
     for (const auto& item : raw_conf) {
       config[item.first.c_str()] = item.second.c_str();
     }
 
     for (const auto& item : config) {
-      std::cout << "ge init config: " << item.first.GetString() << " = " << item.second.GetString() << std::endl; 
+      std::cout << "ge init config: " << item.first.GetString() << " = "
+                << item.second.GetString() << std::endl;
     }
-    CALL_GE_FUNC(ge::GEInitialize(config));
+    CALL_FUNC(ge::GEInitialize(config));
 
-    // 2. add session
-    std::map<AscendString, AscendString> options;
-    session_ = new Session(options);
-    DICP_ASCEND_CHECK_NULLPTR_ABORT(session_);
+    std::map<ge::AscendString, ge::AscendString> options;
+    session_ = std::make_unique<ge::Session>(options);
   }
 
   std::shared_ptr<CompiledGraphSummary> addGraph(int graph_id,
-                                                 const Graph& graph, const std::string& graph_key) {
-    std::map<ge::AscendString, ge::AscendString> graph_options = {{"ge.graph_key", graph_key.c_str()}};
-    CALL_GE_FUNC(session_->AddGraph(graph_id, graph, graph_options));
-    CALL_GE_FUNC(session_->CompileGraph(graph_id));
+                                                 const Graph& graph,
+                                                 const std::string& graph_key) {
+    std::map<ge::AscendString, ge::AscendString> graph_options = {
+        {"ge.graph_key", graph_key.c_str()}};
+    CALL_FUNC(session_->AddGraph(graph_id, graph, graph_options));
+    CALL_FUNC(session_->CompileGraph(graph_id));
     return session_->GetCompiledGraphSummary(graph_id);
   }
 
-  void runGraphWithStreamAsync(int graph_id, void* stream,
-                               const std::vector<Tensor>& inputs,
-                               std::vector<Tensor>& outputs) {
-    CALL_GE_FUNC(session_->RunGraphWithStreamAsync(graph_id, stream, inputs, outputs));
+  void runGraphWithStreamAsync(std::shared_ptr<GEGraph>& graph, void* stream) {
+    CALL_FUNC(session_->RunGraphWithStreamAsync(graph->get_graph_id(), stream,
+                                                graph->get_inputs(),
+                                                graph->get_outputs()));
   }
 
   void setConstMem(int graph_id, const void* const memory, size_t size) {
-    CALL_GE_FUNC(session_->SetGraphConstMemoryBase(graph_id, memory, size));
+    CALL_FUNC(session_->SetGraphConstMemoryBase(graph_id, memory, size));
   }
 
   void setWorkSpace(int graph_id, const void* const memory, size_t size) {
-    CALL_GE_FUNC(session_->UpdateGraphFeatureMemoryBase(graph_id, memory, size););
+    CALL_FUNC(session_->UpdateGraphFeatureMemoryBase(graph_id, memory, size););
   }
 
   ~GEGraphRunner() {
-    delete session_;
-    CALL_GE_FUNC(ge::GEFinalize());
+    session_.reset();
+    auto status = ge::GEFinalize();
+    if (status != 0) {
+      std::cout << "GEFinalize failed!" << std::endl;
+    }
   }
 
  private:
-  int device_id;
-  std::string config_file_path;
-  ge::Session* session_;
+  int device_id_;
+  std::string config_file_path_;
+  std::unique_ptr<ge::Session> session_;
 };
-
 
 #endif  // DICP_ASCEND_GE_RUNNER_H

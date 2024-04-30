@@ -22,10 +22,9 @@
 #include "ge_ir_build.h"
 #include "gnode.h"
 #include "graph.h"
+#include "graph_utils.h"
 #include "tensor.h"
 #include "types.h"
-
-#include "graph_utils.h"
 
 #define FAILED -1
 #define SUCCESS 0
@@ -85,20 +84,23 @@ ge::Operator genInput(const std::string op_name,
 
 class GEGraphBuilder {
  public:
-  explicit GEGraphBuilder(const std::string& fusion_switch_file, const std::string& ge_builder_config_file)
-      : _fusion_switch_file(fusion_switch_file), _ge_builder_config_file(ge_builder_config_file) {
+  explicit GEGraphBuilder(const std::string& fusion_switch_file,
+                          const std::string& ge_builder_config_file)
+      : _fusion_switch_file(fusion_switch_file),
+        _ge_builder_config_file(ge_builder_config_file) {
     // 1. system init
     std::map<AscendString, AscendString> global_options;
 
     auto kSocVersion = aclrtGetSocName();
     global_options[ge::ir_option::SOC_VERSION] = kSocVersion;
-    global_options[ge::ir_option::FUSION_SWITCH_FILE] = _fusion_switch_file.c_str();
+    global_options[ge::ir_option::FUSION_SWITCH_FILE] =
+        _fusion_switch_file.c_str();
 
     auto raw_conf = parse_json_to_map(_ge_builder_config_file);
     for (const auto& item : raw_conf) {
       global_options[item.first.c_str()] = item.second.c_str();
     }
-    CALL_GE_FUNC(aclgrphBuildInitialize(global_options));
+    CALL_FUNC(aclgrphBuildInitialize(global_options));
   }
 
   void saveGraph(const std::string& path, const Graph& graph,

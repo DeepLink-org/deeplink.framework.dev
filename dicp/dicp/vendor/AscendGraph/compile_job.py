@@ -2,6 +2,7 @@ import os
 import subprocess
 import time
 
+import torch_dipu
 import dicp
 from dicp.dynamo_bridge.compile import DeviceCompileJob
 from torch._inductor.codecache import pick_vec_isa, cpp_compile_command, write, code_hash
@@ -23,12 +24,12 @@ class AscendGECompileGERunJob(DeviceCompileJob):
             with open(file, 'r') as f:
                 compile_file_code += f.read()
         picked_vec_isa = pick_vec_isa()
-        self._local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        self.device_id = torch_dipu.current_device()
         self._key, self._input_path = write(
             source_code.strip(),
             "json",
             extra=cpp_compile_command("i", "o", vec_isa=picked_vec_isa) +
-            'local_rank' + str(self._local_rank) + code_hash(compile_file_code)
+            str(self.device_id) + code_hash(compile_file_code)
         )
         self._lib_path = "/tmp/dicp_ascend/ge_graph.so"
         json_util_path = third_party_path + '/nlohmann'
@@ -37,7 +38,7 @@ class AscendGECompileGERunJob(DeviceCompileJob):
         self._cmd = ['/usr/bin/c++',
                      '-D_GLIBCXX_USE_CXX11_ABI=0',
                      '-fPIC',
-                     '-std=c++11',
+                     '-std=c++14',
                      '-O3',
                      '-shared',
                      '-Wall',
@@ -79,10 +80,10 @@ class AscendGECompileGERunJob(DeviceCompileJob):
         graph_manager = load_and_run.get_graph_manager()
         current_graph_id = load_and_run.graph_id
         load_and_run.graph_id = load_and_run.graph_id + 1
-        graph_key = f'{self._key}_graph{current_graph_id}_rank{self._local_rank}'
+        graph_key = f'{self._key}_graph{current_graph_id}_device{self.device_id}'
         graph_manager.add_graph(
             current_graph_id, self._input_path.encode(), graph_key.encode())
-        return load_and_run.GEModel(current_graph_id, self._local_rank)
+        return load_and_run.GEModel(current_graph_id, self.device_id)
 
 
 class AscendGECompileAclRunJob(DeviceCompileJob):
@@ -99,12 +100,12 @@ class AscendGECompileAclRunJob(DeviceCompileJob):
             with open(file, 'r') as f:
                 compile_file_code += f.read()
         picked_vec_isa = pick_vec_isa()
-        self._local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        self.device_id = torch_dipu.current_device()
         self._key, self._input_path = write(
             source_code.strip(),
             "json",
             extra=cpp_compile_command("i", "o", vec_isa=picked_vec_isa) +
-            'local_rank' + str(self._local_rank) + code_hash(compile_file_code)
+            str(self.device_id) + code_hash(compile_file_code)
         )
         self._output_graph_path = self._input_path[:-5] + '/graph'
         # print('output_path: ', self._output_graph_path)
@@ -119,7 +120,7 @@ class AscendGECompileAclRunJob(DeviceCompileJob):
         self._cmd = ['/usr/bin/c++',
                      '-D_GLIBCXX_USE_CXX11_ABI=0',
                      '-fPIC',
-                     '-std=c++11',
+                     '-std=c++14',
                      '-O3',
                      '-shared',
                      '-Wall',
@@ -173,4 +174,4 @@ class AscendGECompileAclRunJob(DeviceCompileJob):
             self._output_graph_path = origin_graph_path + '_linux_aarch64'
         assert (os.path.exists(self._output_graph_path + '.om'))
         from dicp.vendor.AscendGraph.codegen.load_and_run import AscendModel
-        return AscendModel(self._local_rank, self._output_graph_path + '.om')
+        return AscendModel(self.device_id, self._output_graph_path + '.om')
