@@ -186,7 +186,7 @@ class GEStaticGraphExecutor(object):
         output_shape_str = output_shape_buffer.value.decode('utf-8')
         output_dtype_str = output_dtype_buffer.value.decode('utf-8')
         shapes = output_shape_str.split(';')
-        dtypes = output_dtype_str.split(',')
+        dtypes = output_dtype_str.split(';')
 
         assert len(shapes) == len(dtypes)
 
@@ -218,7 +218,7 @@ class GEStaticGraphExecutor(object):
         input_shape_str = input_shape_buffer.value.decode('utf-8')
         input_dtype_str = input_dtype_buffer.value.decode('utf-8')
         shapes = input_shape_str.split(';')
-        dtypes = input_dtype_str.split(',')
+        dtypes = input_dtype_str.split(';')
 
         assert len(shapes) == len(dtypes)
 

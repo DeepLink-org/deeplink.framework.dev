@@ -60,12 +60,12 @@ std::string get_shapes(const std::vector<std::vector<int64_t>>& shapes) {
 
 void get_input_shapes(int graph_id, char* input_shapes) {
   std::string str = get_shapes(graph_manager[graph_id]->get_input_shapes());
-  strncpy(input_shapes, str.c_str(), str.size() + 1);
+  strncpy(input_shapes, str.c_str(), str.size());
 }
 
 void get_output_shapes(int graph_id, char* output_shapes) {
   std::string str = get_shapes(graph_manager[graph_id]->get_output_shapes());
-  strncpy(output_shapes, str.c_str(), str.size() + 1);
+  strncpy(output_shapes, str.c_str(), str.size());
 }
 
 std::string get_dtypes(const std::vector<int>& dtypes) {
