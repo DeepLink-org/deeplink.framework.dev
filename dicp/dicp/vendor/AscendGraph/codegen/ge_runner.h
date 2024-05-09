@@ -66,7 +66,12 @@ class GEGraphRunner {
     CALL_FUNC(session_->SetGraphConstMemoryBase(graph_id, memory, size));
   }
 
-  void setWorkSpace(int graph_id, const void* const memory, size_t size) {
+  void setFixedFeatureMem(int graph_id, const void* const memory, size_t size) {
+    CALL_FUNC(
+        session_->SetGraphFixedFeatureMemoryBase(graph_id, memory, size););
+  }
+
+  void setFeatureMem(int graph_id, const void* const memory, size_t size) {
     CALL_FUNC(session_->UpdateGraphFeatureMemoryBase(graph_id, memory, size););
   }
 

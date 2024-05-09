@@ -43,8 +43,12 @@ size_t get_const_size(int graph_id) {
   return graph_manager[graph_id]->const_memory_size();
 }
 
-size_t get_workspace_size(int graph_id) {
+size_t get_feature_size(int graph_id) {
   return graph_manager[graph_id]->feature_memory_size();
+}
+
+size_t get_fixed_feature_size(int graph_id) {
+  return graph_manager[graph_id]->fixed_feature_memory_size();
 }
 
 std::string get_shapes(const std::vector<std::vector<int64_t>>& shapes) {
@@ -86,10 +90,81 @@ void get_output_dtypes(int graph_id, char* output_dtypes) {
   strncpy(output_dtypes, str.c_str(), str.size() + 1);
 }
 
+void update_inputs(int graph_id, int64_t** shapes, size_t* shape_sizes,
+                   size_t outer_size) {
+  std::vector<ge::Shape> ge_shapes;
+  ge_shapes.reserve(outer_size);
+  for (size_t i = 0; i < outer_size; ++i) {
+    std::vector<int64_t> inner_shape(shapes[i], shapes[i] + shape_sizes[i]);
+    ge_shapes.emplace_back(inner_shape);
+  }
+  graph_manager[graph_id]->update_inputs(ge_shapes);
+}
+
+void update_outputs(int graph_id, int64_t** shapes, size_t* shape_sizes,
+                    size_t outer_size) {
+  std::vector<ge::Shape> ge_shapes;
+  ge_shapes.reserve(outer_size);
+  for (size_t i = 0; i < outer_size; ++i) {
+    std::vector<int64_t> inner_shape(shapes[i], shapes[i] + shape_sizes[i]);
+    ge_shapes.emplace_back(inner_shape);
+  }
+  graph_manager[graph_id]->update_outputs(ge_shapes);
+}
+
+void assemble_inputs(int graph_id, int64_t** shapes, size_t* shape_sizes,
+                     size_t outer_size, int* dtypes, int* formats) {
+  std::vector<ge::Shape> ge_shapes;
+  std::vector<ge::DataType> ge_dtypes;
+  std::vector<ge::Format> ge_formats;
+  ge_shapes.reserve(outer_size);
+  ge_dtypes.reserve(outer_size);
+  ge_formats.reserve(outer_size);
+  for (size_t i = 0; i < outer_size; ++i) {
+    std::vector<int64_t> inner_shape(shapes[i], shapes[i] + shape_sizes[i]);
+    ge_shapes.emplace_back(inner_shape);
+    ge_dtypes.emplace_back(static_cast<ge::DataType>(dtypes[i]));
+    ge_formats.emplace_back(static_cast<ge::Format>(formats[i]));
+  }
+  graph_manager[graph_id]->assemble_inputs(ge_shapes, ge_dtypes, ge_formats);
+}
+
+void assemble_outputs(int graph_id, int64_t** shapes, size_t* shape_sizes,
+                      size_t outer_size, int* dtypes, int* formats) {
+  std::vector<ge::Shape> ge_shapes;
+  std::vector<ge::DataType> ge_dtypes;
+  std::vector<ge::Format> ge_formats;
+  ge_shapes.reserve(outer_size);
+  ge_dtypes.reserve(outer_size);
+  ge_formats.reserve(outer_size);
+  for (size_t i = 0; i < outer_size; ++i) {
+    std::vector<int64_t> inner_shape(shapes[i], shapes[i] + shape_sizes[i]);
+    ge_shapes.emplace_back(inner_shape);
+    ge_dtypes.emplace_back(static_cast<ge::DataType>(dtypes[i]));
+    ge_formats.emplace_back(static_cast<ge::Format>(formats[i]));
+  }
+  graph_manager[graph_id]->assemble_outputs(ge_shapes, ge_dtypes, ge_formats);
+}
+
 void set_graph_memory(int graph_id, void* const_mem_ptr, void* workspace_ptr,
                       size_t const_size, size_t workspace_size) {
   graph_runner->setConstMem(graph_id, const_mem_ptr, const_size);
-  graph_runner->setWorkSpace(graph_id, workspace_ptr, workspace_size);
+  graph_runner->setFeatureMem(graph_id, workspace_ptr, workspace_size);
+}
+
+void set_fixed_feature_graph_memory(int graph_id, void* workspace_ptr,
+                                    size_t workspace_size) {
+  graph_runner->setFixedFeatureMem(graph_id, workspace_ptr, workspace_size);
+}
+
+void set_feature_graph_memory(int graph_id, void* workspace_ptr,
+                              size_t workspace_size) {
+  graph_runner->setFeatureMem(graph_id, workspace_ptr, workspace_size);
+}
+
+void set_const_graph_memory(int graph_id, void* workspace_ptr,
+                            size_t workspace_size) {
+  graph_runner->setConstMem(graph_id, workspace_ptr, workspace_size);
 }
 
 void run(int graph_id, void* stream, void* inputs_data[], void* outputs_data[],

@@ -61,6 +61,7 @@ class AscendCodegen(torch.fx.Interpreter):
         self.py_output_names = []
         self.graph_output_names = []
         self.build_options = []
+        self.output_nodes = []
 
         self.folder = folder
         self.graph_key = graph_key
@@ -193,6 +194,19 @@ class AscendCodegen(torch.fx.Interpreter):
             else:
                 self.py_output_names.append(str(node))
         self.output_args = real_output_args
+
+        if len(self.sym_in_args) > 0 or len(self.sym_to_inputs) > 0:
+            for output in self.output_args:
+                info = {}
+                info['format'] = 'ND'
+                if hasattr(output, 'meta'):
+                    output = output.meta['val']
+                if isinstance(output, torch.SymInt):
+                    info['data_type'] = 'INT32'
+                elif isinstance(output, torch.SymBool):
+                    info['data_type'] = 'BOOL'
+                info['data_type'] = get_ascend_dtype(output.dtype)
+                self.output_nodes.append(info)
 
         if len(self.assign_args) > 0:
             self.graph_output_names.extend(list(zip(*self.assign_args))[0])
@@ -332,6 +346,7 @@ class AscendCodegen(torch.fx.Interpreter):
                 extra_stride_str += '[' + ','.join(map(str, stride)) + '],'
                 extra_storage_offset_str += str(self.input_args[elem[1]].meta['val'].storage_offset()) + ','
             shape_str = shape_str[:-1] + ''']'''
+
             call_body.writeline(shape_str)
         else:
             call_body.writeline('''output_shape = None''')
@@ -499,6 +514,7 @@ class AscendCodegen(torch.fx.Interpreter):
             "build_options": self.build_options,
             "data_nodes": self.data_nodes,
             "common_nodes": self.common_nodes,
+            "output_nodes": self.output_nodes,
         }
         self.remove_symint(graph)
         return json.dumps(graph)
@@ -506,8 +522,7 @@ class AscendCodegen(torch.fx.Interpreter):
     def gen_compile_graph_code(self):
         compile_graph_code = IndentedBuffer()
         graph_json = self.gen_graph_json()
-        has_dynamic_shape = False if len(self.sym_in_args) == 0 and len(self.sym_to_inputs) == 0 else True
-        compile_job_type = 'AscendGECompileAclRunJob' if has_dynamic_shape else 'AscendGECompileGERunJob'
+        compile_job_type = 'AscendGECompileGERunJob'
         compile_graph_code.splice(
             f"""
                 ascend_compile_job = {compile_job_type}('''{graph_json}''')

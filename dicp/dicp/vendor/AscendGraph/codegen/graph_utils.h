@@ -60,6 +60,15 @@ using json = nlohmann::json;
     }                                                         \
   } while (0);
 
+#define CHECK(Expr)                                   \
+  do {                                                \
+    auto ret = Expr;                                  \
+    if (!ret) {                                       \
+      TRACK_GE(#Expr);                                \
+      throw std::runtime_error("dicp check failed."); \
+    }                                                 \
+  } while (0);
+
 std::unordered_map<std::string, std::string> parse_json_to_map(
     const std::string& config_file) {
   std::ifstream f(config_file);

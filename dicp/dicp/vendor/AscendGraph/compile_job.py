@@ -1,6 +1,7 @@
 import os
 import subprocess
 import time
+import json
 
 import torch_dipu
 import dicp
@@ -25,6 +26,7 @@ class AscendGECompileGERunJob(DeviceCompileJob):
                 compile_file_code += f.read()
         picked_vec_isa = pick_vec_isa()
         self.device_id = torch_dipu.current_device()
+        self.graph = json.loads(source_code.strip())
         self._key, self._input_path = write(
             source_code.strip(),
             "json",
@@ -83,7 +85,14 @@ class AscendGECompileGERunJob(DeviceCompileJob):
         graph_key = f'{self._key}_graph{current_graph_id}_device{self.device_id}'
         graph_manager.add_graph(
             current_graph_id, self._input_path.encode(), graph_key.encode())
-        return load_and_run.GEModel(current_graph_id, self.device_id)
+        is_static = not self.graph['has_dynamic_shape']
+        if is_static:
+            input_nodes = None
+            output_nodes = None
+        else:
+            input_nodes = self.graph['data_nodes']
+            output_nodes = self.graph['output_nodes']
+        return load_and_run.GEModel(current_graph_id, self.device_id, is_static, input_nodes=input_nodes, output_nodes=output_nodes)
 
 
 class AscendGECompileAclRunJob(DeviceCompileJob):

@@ -2,6 +2,7 @@
 #define DICP_ASCEND_GE_GRAPH_H
 #include <algorithm>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <memory>
@@ -21,9 +22,12 @@ class GEGraph {
         graph_(std::move(graph)),
         graph_key_(std::move(graph_key)),
         spec_(std::move(spec)),
-        inputs(std::move(input_tensors)) {
-    prepare_output();
-    prepare_input_output_tensordesc();
+        inputs(std::move(input_tensors)),
+        is_static(spec_->IsStatic()) {
+    if (is_static) {
+      prepare_static_output_tensors();
+      prepare_input_output_tensordesc();
+    }
   }
 
   size_t const_memory_size() {
@@ -38,13 +42,19 @@ class GEGraph {
     return size;
   }
 
+  size_t fixed_feature_memory_size() {
+    size_t size;
+    CALL_FUNC(spec_->GetFixedFeatureMemorySize(size));
+    return size;
+  }
+
   int get_graph_id() const { return graph_id_; }
 
   std::vector<Tensor>& get_inputs() { return inputs; }
 
   std::vector<Tensor>& get_outputs() { return outputs; }
 
-  void prepare_output() {
+  void prepare_static_output_tensors() {
     std::vector<ge::Shape> shapes;
     std::vector<ge::DataType> dtypes;
     CALL_FUNC(spec_->GetOutputShapes(shapes));
@@ -65,6 +75,50 @@ class GEGraph {
                    std::back_inserter(inputs_desc), get_tensor_desc);
     std::transform(outputs.begin(), outputs.end(),
                    std::back_inserter(outputs_desc), get_tensor_desc);
+  }
+
+  void assemble_inputs(const std::vector<ge::Shape>& shapes,
+                       const std::vector<ge::DataType>& dtypes,
+                       const std::vector<ge::Format>& formats) {
+    inputs.clear();
+    CHECK(shapes.size() == dtypes.size() && shapes.size() == formats.size());
+    auto size = shapes.size();
+    for (auto i = 0; i < size; ++i) {
+      inputs.emplace_back(ge::TensorDesc(shapes[i], formats[i], dtypes[i]));
+      inputs[i].SetPlacement(ge::Placement::kPlacementDevice);
+    }
+  }
+
+  void assemble_outputs(const std::vector<ge::Shape>& shapes,
+                        const std::vector<ge::DataType>& dtypes,
+                        const std::vector<ge::Format>& formats) {
+    outputs.clear();
+    CHECK(shapes.size() == dtypes.size() && shapes.size() == formats.size());
+    auto size = shapes.size();
+    for (auto i = 0; i < size; ++i) {
+      outputs.emplace_back(ge::TensorDesc(shapes[i], formats[i], dtypes[i]));
+      outputs[i].SetPlacement(ge::Placement::kPlacementDevice);
+    }
+  }
+
+  void update_inputs(const std::vector<ge::Shape>& shapes) {
+    CHECK(inputs.size() == shapes.size());
+    auto size = shapes.size();
+    for (auto i = 0; i < size; ++i) {
+      auto desc = inputs[i].GetTensorDesc();
+      desc.SetShape(shapes[i]);
+      CALL_FUNC(inputs[i].SetTensorDesc(desc));
+    }
+  }
+
+  void update_outputs(const std::vector<ge::Shape>& shapes) {
+    CHECK(outputs.size() == shapes.size());
+    auto size = shapes.size();
+    for (auto i = 0; i < size; ++i) {
+      auto desc = outputs[i].GetTensorDesc();
+      desc.SetShape(shapes[i]);
+      CALL_FUNC(outputs[i].SetTensorDesc(desc));
+    }
   }
 
   std::vector<std::vector<int64_t>> get_input_shapes() {
@@ -124,6 +178,7 @@ class GEGraph {
   std::vector<Tensor> outputs;
   std::vector<TensorDesc> inputs_desc;
   std::vector<TensorDesc> outputs_desc;
+  bool is_static;
 };
 
 #endif  // DICP_ASCEND_GE_GRAPH_H
