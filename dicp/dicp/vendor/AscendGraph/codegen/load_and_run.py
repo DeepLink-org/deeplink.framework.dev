@@ -37,7 +37,7 @@ class MemoryPool:
 
     def init_work_weight_ptr(self):
         if self.work_ptr is None:
-            self.work_size = int(16 * 1024 * 1024 * 1024)
+            self.work_size = int(26 * 1024 * 1024 * 1024)
             self.work_tensor = torch.empty(
                 self.work_size, dtype=torch.bool, device=dipu_device_str)
             self.work_ptr = self.work_tensor.data_ptr()
@@ -107,7 +107,7 @@ class GEStaticGraphExecutor(object):
             self.const_mem_size, dtype=torch.bool, device='dipu')
         self.const_ptr = self.const_tensor.data_ptr()
         graph_manager.graph_manager.set_graph_memory(self.graph_id, c_void_p(
-            self.const_ptr), c_void_p(memory_pool.work_ptr), self.const_mem_size, self.feature_mem_size)
+            self.const_ptr), c_void_p(memory_pool.work_ptr), c_size_t(self.const_mem_size), c_size_t(memory_pool.work_size))
 
         # prapare output info
         output_shape_buffer = ctypes.create_string_buffer(10000)

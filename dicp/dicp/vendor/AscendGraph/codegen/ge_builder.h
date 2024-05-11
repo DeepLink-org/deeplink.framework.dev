@@ -33,7 +33,7 @@ using json = nlohmann::json;
 using namespace ge;
 
 static std::unordered_set<std::string> op_with_dynamic_inputs_outputs = {
-    "ConcatD", "IdentityN", "Pack", "SplitD", "IncreFlashAttention"};
+    "ConcatD", "IdentityN", "Pack", "SplitD", "SplitVD", "IncreFlashAttention"};
 
 void check_op(std::unordered_map<std::string, ge::Operator>& op_map,
               const std::string& op_name) {
@@ -264,6 +264,10 @@ ge::Operator genDynamicOperator(
     return op;
   } else if (op_type == "SplitD") {
     auto op = genDynamicOp<op::SplitD>(op_name);
+    parseDynamicOutput(op, node);
+    return op;
+  } else if (op_type == "SplitVD") {
+    auto op = genDynamicOp<op::SplitVD>(op_name);
     parseDynamicOutput(op, node);
     return op;
   }

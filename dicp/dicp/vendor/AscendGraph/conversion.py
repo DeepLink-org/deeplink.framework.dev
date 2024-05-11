@@ -1602,15 +1602,14 @@ class AtenToAscendTransformer(SingleOpTransformer):
         res = []
         compute_batch = 1
         select_axis = self.get_const_proxy(0, torch.int32)
-
         for i in range(batch):
-            current_len = current_len[i]
+            current_len_i = current_len[i]
             select_index = self.get_const_proxy(i, torch.int32)
             xq = self.get_proxy(ascend_op.GatherV2, (q, select_index, select_axis))
 
+            kv_seq_len = current_len_i - i * max_len
             kv_start_index = self.get_const_proxy([i * max_len, 0, 0], torch.int32)
-            kv_end_index = self.get_const_proxy([i * max_len + current_len, kvhead, dim], torch.int32)
-            kv_seq_len = current_len
+            kv_end_index = self.get_const_proxy([kv_seq_len, kvhead, dim], torch.int32)
 
             kv_gather_shape = self.get_shape_proxy([compute_batch, kv_seq_len, kvhead, dim])
             kv_compute_shape = self.get_shape_proxy([compute_batch, kv_seq_len, kvhead * dim])
