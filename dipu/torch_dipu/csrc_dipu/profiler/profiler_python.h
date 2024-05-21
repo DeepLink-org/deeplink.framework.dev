@@ -8,10 +8,10 @@ namespace dipu {
 namespace profile {
 
 class DIPURecordQueue;
-std::unique_ptr<torch::profiler::impl::python_tracer::PythonTracerBase>
-makeTracer(DIPURecordQueue* queue);
+inline std::unique_ptr<torch::profiler::impl::python_tracer::PythonTracerBase>
+makeTracer(DIPURecordQueue* queue) { return {}; }
 
-void init();
+inline void init() {}
 
 }  // namespace profile
 }  // namespace dipu

@@ -88,7 +88,7 @@ set(TORCH_DIPU_SOURCE
   profiler/collection.cpp
   profiler/CorrelationIDManager.cpp
   profiler/profiler.cpp
-  profiler/profiler_python.cpp
+  # profiler/profiler_python.cpp
   profiler/profiler_kineto.cpp
   profiler/DIPUDeviceActivity.cpp
   profiler/patch.cpp
@@ -118,7 +118,7 @@ target_include_directories(torch_dipu PUBLIC ..)
 # TODO(vendor) - replace those code with target_link_libraries.
 target_include_directories(torch_dipu SYSTEM PUBLIC ${VENDOR_INCLUDE_DIRS} ${VENDOR_DIST_DIR})
 target_link_directories(torch_dipu PRIVATE ${VENDOR_LIB_DIRS})
-target_link_libraries(torch_dipu PRIVATE ${DIPU_VENDOR_LIB})
+target_link_libraries(torch_dipu PUBLIC ${DIPU_VENDOR_LIB})
 
 if(NOT EXISTS "${VENDOR_SOURCE_DIR}/vendor_autocast.h")
   target_compile_definitions(torch_dipu PRIVATE DIPU_NO_VENDOR_AUTOCAST)
@@ -128,15 +128,15 @@ endif()
 # Target kineto only contains object files. Thus we need to do something to
 # fetch header files. And kineto's public headers are also used by other
 # target, so they are marked as PUBLIC.
-target_link_libraries(torch_dipu PRIVATE kineto)
+target_link_libraries(torch_dipu PUBLIC kineto)
 target_compile_definitions(torch_dipu PRIVATE USE_KINETO)
 target_include_directories(torch_dipu SYSTEM
   PUBLIC "${kineto_SOURCE_DIR}/include"
   PRIVATE "${kineto_SOURCE_DIR}/src")
 
-target_link_libraries(torch_dipu PRIVATE diopi_impl)
-target_link_libraries(torch_dipu PRIVATE Python3::Python c10 torch torch_cpu)
-target_link_libraries(torch_dipu PRIVATE Threads::Threads)
+target_link_libraries(torch_dipu PUBLIC diopi_impl)
+target_link_libraries(torch_dipu PUBLIC Python3::Python c10 torch torch_cpu)
+target_link_libraries(torch_dipu PUBLIC Threads::Threads)
 
 #[[ Target: torch_dipu_python ]]
 set(TORCH_DIPU_PYBIND_SOURCE
@@ -167,3 +167,7 @@ set_target_properties(torch_dipu torch_dipu_python torch_dipu_cpython_extension
   PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}/torch_dipu")
 
 # TODO(lljbash,lihuayi): set the lib output dir like pytorch
+
+add_executable(hello ${PROJECT_SOURCE_DIR}/hello.cpp)
+# target_link_options(hello PRIVATE "LINKER:-no-as-needed")
+target_link_libraries(hello PUBLIC torch_dipu)
