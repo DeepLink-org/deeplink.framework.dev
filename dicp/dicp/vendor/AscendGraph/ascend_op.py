@@ -1161,6 +1161,34 @@ class ScatterNdUpdate(Operator):
         return x
 
 
+class HcomAllReduce(Operator):
+    def __init__(self):
+        super().__init__("HcomAllReduce")
+
+    def infer_result(self, x, reduction, group, fusion, fusion_id):
+        return x
+
+
+class HcomAllGather(Operator):
+    def __init__(self):
+        super().__init__("HcomAllGather")
+
+    def infer_result(self, x, group_size, tag):
+        x, x_shape, x_dim, x_dtype = get_fake_tensor_meta_val(x)
+        # x_shape_list = list(x_shape)
+        # TODO handle gather at all dims in x
+        x_shape[0] = x_shape[0] * group_size
+        return torch.empty(x_shape, dtype=x_dtype, memory_format=get_memory_format(x))
+
+
+class ReduceProdD(Operator):
+    def __init__(self):
+        super().__init__("ReduceProdD")
+
+    def infer_result(self, x, dims, keep_dims=False):
+        return reduce_op_infer(x, dims, keep_dims)
+
+
 def ret_triple(a, b, c) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     return a, b, c
 

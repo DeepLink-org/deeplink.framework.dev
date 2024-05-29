@@ -67,6 +67,8 @@ class SingleOpTransformer(torch.fx.Transformer):
                 'call_function', out, args, kwargs)
             proxy.node.meta = fx_traceback.get_current_meta()
             return proxy
+        else:
+            raise RuntimeError(f"{target} is not in conversion!")
         return super().call_function(target, args, kwargs)
 
     def get_attr(self, target: 'Target', args: Tuple[Argument, ...], kwargs: Dict[str, Any]) -> Proxy:

@@ -61,9 +61,13 @@ class AscendCodegen(torch.fx.Interpreter):
         self.py_output_names = []
         self.graph_output_names = []
         self.build_options = []
+        self.output_nodes = []
 
         self.folder = folder
         self.graph_key = graph_key
+
+        # aten_graph.print_readable()
+        # graph.print_readable()
 
         self.sym_to_inputs = {}
         self.sym_in_args = {}
@@ -194,8 +198,26 @@ class AscendCodegen(torch.fx.Interpreter):
                 self.py_output_names.append(str(node))
         self.output_args = real_output_args
 
+        if len(self.sym_in_args) > 0 or len(self.sym_to_inputs) > 0:
+            for output in self.output_args:
+                info = {}
+                info['format'] = 'ND'
+                if hasattr(output, 'meta'):
+                    output = output.meta['val']
+                if isinstance(output, torch.SymInt):
+                    info['data_type'] = 'INT32'
+                elif isinstance(output, torch.SymBool):
+                    info['data_type'] = 'BOOL'
+                info['data_type'] = get_ascend_dtype(output.dtype)
+                self.output_nodes.append(info)
         if len(self.assign_args) > 0:
             self.graph_output_names.extend(list(zip(*self.assign_args))[0])
+            for item in self.assign_args:
+                index = item[1]
+                info = {}
+                info['format'] = self.data_nodes[index]['format']
+                info['data_type'] = self.data_nodes[index]['data_type']
+                self.output_nodes.append(info)
 
     def gen_import_code(self):
         self.import_code.splice(
@@ -204,9 +226,10 @@ class AscendCodegen(torch.fx.Interpreter):
                 import torch
                 import torch_dipu
                 import random
+                import pickle
                 from torch import empty_strided, as_strided, device
                 from dicp.dynamo_bridge.compile import AsyncCompileKernel
-                from dicp.vendor.AscendGraph.compile_job import AscendCompileJob
+                from dicp.vendor.AscendGraph.compile_job import AscendGECompileAclRunJob, AscendGECompileGERunJob
 
                 aten = torch.ops.aten
                 assert_size_stride = torch._C._dynamo.guards.assert_size_stride
@@ -215,6 +238,16 @@ class AscendCodegen(torch.fx.Interpreter):
                     if not torch.allclose(a, b, atol=atol, rtol=rtol, equal_nan=True):
                         import pdb;pdb.set_trace()
                         pass
+                
+                def dump_tensors(args):
+                    dir_path = '/tzy/dynamic_shape/lightllm'
+                    new_args = list(args)
+                    for i, x in enumerate(new_args):
+                        if not isinstance(x, int):
+                            x = x.cpu()
+                        new_args[i] = x
+                    with open(dir_path + '/args.pkl', 'wb') as f:
+                        pickle.dump(new_args, f)
             """, strip=True
         )
         return self.import_code.getvalue()
@@ -234,6 +267,7 @@ class AscendCodegen(torch.fx.Interpreter):
         # dynamic shape feature
         if len(self.sym_in_args) > 0 or len(self.sym_to_inputs) > 0:
             args = ['_' if arg not in shape_symint and arg not in self.sym_to_inputs.values() else arg for arg in self.args]
+            call_body.writeline(f"dump_tensors(args)")
             call_body.writeline(f"({','.join(args)}) = args")
 
             # assign SymInt to InputArgs relationship
@@ -461,6 +495,7 @@ class AscendCodegen(torch.fx.Interpreter):
             "build_options": self.build_options,
             "data_nodes": self.data_nodes,
             "common_nodes": self.common_nodes,
+            "output_nodes": self.output_nodes,
         }
         self.remove_symint(graph)
         return json.dumps(graph)
@@ -468,9 +503,11 @@ class AscendCodegen(torch.fx.Interpreter):
     def gen_compile_graph_code(self):
         compile_graph_code = IndentedBuffer()
         graph_json = self.gen_graph_json()
+        compile_job_type = 'AscendGECompileGERunJob'
+        # compile_job_type = 'AscendGECompileAclRunJob'
         compile_graph_code.splice(
             f"""
-                ascend_compile_job = AscendCompileJob('''{graph_json}''')
+                ascend_compile_job = {compile_job_type}('''{graph_json}''')
                 async_compile = AsyncCompileKernel()
                 kernel_cpp_0 = async_compile.compile_kernel(ascend_compile_job)
             """, strip=True
@@ -1646,4 +1683,31 @@ class AscendOverrides:
         op.set_input("var", x)
         op.set_input("indices", indices)
         op.set_input("updates", updates)
+        return op.to_node()
+
+    @staticmethod
+    def HcomAllGather(name, x, group_size, tag):
+        op = OP(name, "HcomAllGather")
+        op.set_input("x", x)
+        op.set_attr_int("rank_size", group_size)
+        op.set_attr_str("group", tag)
+        return op.to_node()
+
+    @staticmethod
+    def HcomAllReduce(name, x, reduction, group, ranklist, fusion=0, fusion_id=-1):
+        op = OP(name, "HcomAllReduce")
+        op.set_input("x", x)
+        op.set_attr_str("reduction", reduction) 
+        op.set_attr_str("group", group)
+        op.set_attr_int("fusion", fusion)
+        op.set_attr_int("fusion_id", fusion_id)
+        op.set_attr_list_int("ranklist", ranklist)
+        return op.to_node()
+
+    @staticmethod
+    def ReduceProdD(name, x, dims, keep_dims=False):
+        op = OP(name, "ReduceProdD")
+        op.set_input("x", x)
+        op.set_attr_bool("keep_dims", keep_dims)
+        op.set_attr_list_int("axes", dims)
         return op.to_node()
