@@ -178,8 +178,9 @@ void set_const_graph_memory(int graph_id, void* workspace_ptr,
   graph_runner->setConstMem(graph_id, workspace_ptr, workspace_size);
 }
 
-void run(int graph_id, void* stream, void* inputs_data[], void* outputs_data[],
+void run(aclrtContext context, int graph_id, void* stream, void* inputs_data[], void* outputs_data[],
          int64_t inputs_data_size[], int64_t outputs_data_size[]) {
+  CALL_FUNC(aclrtSetCurrentContext(context));
   graph_manager[graph_id]->set_input_output_data(
       inputs_data, outputs_data, inputs_data_size, outputs_data_size);
   graph_runner->runGraphWithStreamAsync(graph_manager[graph_id], stream);
