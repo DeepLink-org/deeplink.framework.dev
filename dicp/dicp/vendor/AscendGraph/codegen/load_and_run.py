@@ -260,7 +260,6 @@ class GEStaticGraphExecutor(object):
     def run(self, images, dims=None, output_shape=None,
             out_stride=None, out_storage_offset=None,
             allocated_output=None):
-
         def get_data_ptr(data):
             if data.device.dtype != dipu_device_str:
                 data = data.to(dipu_device_str)
@@ -296,8 +295,8 @@ class GEStaticGraphExecutor(object):
         output_ptrs_c = (c_void_p * len(output_tensors))(*output_ptrs)
         context, ret = acl.rt.get_context()
         current_stream, ret = acl.rt.create_stream()
-        graph_manager.graph_manager.run((c_void_p)(context), self.graph_id, current_stream, input_ptrs_c,
-                                        output_ptrs_c, input_datasize_c, output_datasize_c)
+        graph_manager.graph_manager.run((c_void_p)(context), self.graph_id, (c_void_p)(current_stream), input_ptrs_c,
+                                        output_ptrs_c, self.input_datasize_c, self.output_datasize_c)
         ret = acl.rt.synchronize_stream(current_stream)
         ret = acl.rt.destroy_stream(current_stream)
         check_ret("acl.rt.synchronize_stream", ret)
@@ -450,7 +449,7 @@ class GEDynamicGraphExecutor(object):
         output_ptrs_c = (c_void_p * len(output_tensors))(*output_ptrs)
         context, ret = acl.rt.get_context()
         current_stream, ret = acl.rt.create_stream()
-        graph_manager.graph_manager.run((c_void_p)(context),self.graph_id, current_stream, input_ptrs_c,
+        graph_manager.graph_manager.run((c_void_p)(context), self.graph_id, (c_void_p)(current_stream), input_ptrs_c,
                                         output_ptrs_c, input_datasize_c, output_datasize_c)
         ret = acl.rt.synchronize_stream(current_stream)
         ret = acl.rt.destroy_stream(current_stream)
