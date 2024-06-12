@@ -82,6 +82,7 @@ def compile_fx_inner(
 
     gt = GraphTransformer(gm, backend)
     gt.transform()
+
     gt.infer_shape_dtype()
     compiled_fn = gt.compile_to_fn()
 

@@ -1740,7 +1740,7 @@ class AtenToAscendTransformer(SingleOpTransformer):
         return self.get_proxy(ascend_op.Identity, (out, 0))
 
     @register_conversion(torch.ops.lightllm.prompt_attention_inference.default)
-    def prompt_attention_inference(self, q, k, v, seqlen, num_head, head_dim):
+    def prompt_attention_inference(self, q, k, v, seqlen, num_head, head_dim, numKeyValueHeads):
         q_shape = list(q.node.meta['val'].shape)
         seq_len = q_shape[1]
         shape = [seq_len, seq_len]
@@ -1750,10 +1750,10 @@ class AtenToAscendTransformer(SingleOpTransformer):
         mask = self.get_proxy(ascend_op.Tril, (mask,))
         mask = self.get_proxy(ascend_op.LogicalNot, (mask,))
         q = self.get_proxy(ascend_op.Cast, (q, get_ascend_dtype(torch.float16)))
-        fa = self.get_proxy(ascend_op.PromptFlashAttention, (q, k, v, num_head, seqlen, mask, head_dim))
+        fa = self.get_proxy(ascend_op.PromptFlashAttention, (q, k, v, num_head, seqlen, mask, head_dim, numKeyValueHeads))
         return fa
 
-    def incre_flash_attention(self, q, k, v, head_num, kv_head_num, dim):
+    def incre_flash_attention(self, q, k, v, kv_head_num, head_num, dim):
         k_list = []
         v_list = []
         if not isinstance(k, list):
