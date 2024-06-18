@@ -1722,6 +1722,8 @@ class AtenToAscendTransformer(SingleOpTransformer):
 
         seq_len = x_shape[0]
         dim = x_shape[2]
+        if isinstance(dim, torch.fx.proxy.Proxy):
+            dim = int(sympy.N(dim.node.meta['val']))
 
         cos_sin_shape = self.get_shape_proxy([seq_len, 1, dim // 2])
         cos = self.get_proxy(ascend_op.Reshape, (cos, cos_sin_shape))
@@ -1741,6 +1743,10 @@ class AtenToAscendTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.lightllm.prompt_attention_inference.default)
     def prompt_attention_inference(self, q, k, v, seqlen, num_head, head_dim):
+        if isinstance(num_head, torch.fx.proxy.Proxy):
+            num_head = int(sympy.N(num_head.node.meta['val']))
+        if isinstance(head_dim, torch.fx.proxy.Proxy):
+            head_dim = int(sympy.N(head_dim.node.meta['val']))
         q_shape = list(q.node.meta['val'].shape)
         seq_len = q_shape[1]
         shape = [seq_len, seq_len]
@@ -1794,6 +1800,11 @@ class AtenToAscendTransformer(SingleOpTransformer):
         if isinstance(end_dim, int):
             end_dim = self.get_const_proxy(end_dim, torch.int32)
         dims = self.get_proxy(ascend_op.Range, (start_dim, end_dim, step))
+        dims = self.get_proxy(ascend_op.Unsqueeze, (dims, [-1]))
+        return self.get_proxy(ascend_op.ScatterNdUpdate, (x, dims, src))
+
+    @register_conversion(torch.ops.lightllm.copy_with_index.default)
+    def copy_with_index(self, x, src, dims):
         dims = self.get_proxy(ascend_op.Unsqueeze, (dims, [-1]))
         return self.get_proxy(ascend_op.ScatterNdUpdate, (x, dims, src))
 
@@ -1909,3 +1920,19 @@ class AtenToAscendTransformer(SingleOpTransformer):
             assert isinstance(y, int)
             y = self.get_const_proxy(y, torch.int32)
         return self.get_proxy(ascend_op.Mul, (x, y))
+
+    @register_conversion(torch.ops.lightllm.paged_attention_inference.default)
+    def paged_attention_inference(self, q, all_k, all_v, q_head_num, dim, kv_head_num, block_table=None, seq_lengths=None, block_size=128):
+        if isinstance(q_head_num, torch.fx.proxy.Proxy):
+            q_head_num = int(sympy.N(q_head_num.node.meta['val']))
+        if isinstance(dim, torch.fx.proxy.Proxy):
+            dim = int(sympy.N(dim.node.meta['val']))
+        if isinstance(kv_head_num, torch.fx.proxy.Proxy):
+            kv_head_num = int(sympy.N(kv_head_num.node.meta['val']))
+        q = self.get_proxy(ascend_op.Unsqueeze, (q, [1]))
+        all_k = self.get_proxy(ascend_op.Unsqueeze, (all_k, [1]))
+        all_v = self.get_proxy(ascend_op.Unsqueeze, (all_v, [1]))
+        out = self.get_proxy(ascend_op.IncreFlashAttention, (q, [all_k], [all_v], 1,
+                             q_head_num, kv_head_num, dim, "BSH", block_table, seq_lengths, block_size))
+        out = self.get_proxy(ascend_op.Squeeze, (out, [1]))
+        return out
