@@ -1628,7 +1628,7 @@ class AscendOverrides:
         return op.to_node()
 
     @staticmethod
-    def PromptFlashAttention(name, q, k, v, head_num, seqlen, mask, head_dim):
+    def PromptFlashAttention(name, q, k, v, head_num, seqlen, mask, head_dim, numKeyValueHeads):
         op = OP(name, "PromptFlashAttention")
         op.set_input("query", q)
         op.set_input("key", k)
@@ -1637,6 +1637,7 @@ class AscendOverrides:
         op.set_attr_int("num_heads", head_num)
         op.set_attr_float("scale_value", float(1 / math.sqrt(head_dim)))
         op.set_attr_str("input_layout", "BSH")
+        op.set_attr_int("num_key_value_heads", numKeyValueHeads)
         return op.to_node()
 
     @staticmethod
