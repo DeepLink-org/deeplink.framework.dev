@@ -3,6 +3,7 @@ import subprocess
 import time
 import json
 
+import acl
 import torch_dipu
 import dicp
 from dicp.dynamo_bridge.compile import DeviceCompileJob
@@ -79,12 +80,14 @@ class AscendGECompileGERunJob(DeviceCompileJob):
 
     def get_compile_result(self):
         self._compile()
+        context, ret = acl.rt.get_context()
         graph_manager = load_and_run.get_graph_manager()
         current_graph_id = load_and_run.graph_id
         load_and_run.graph_id = load_and_run.graph_id + 1
         graph_key = f'{self._key}_graph{current_graph_id}_device{self.device_id}'
         graph_manager.add_graph(
             current_graph_id, self._input_path.encode(), graph_key.encode())
+        ret = acl.rt.set_context(context)
         is_static = not self.graph['has_dynamic_shape']
         if is_static:
             input_nodes = None

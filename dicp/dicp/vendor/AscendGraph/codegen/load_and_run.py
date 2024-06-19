@@ -212,10 +212,13 @@ class GEStaticGraphExecutor(object):
                 output_tensors.append(item)
 
         output_ptrs_c = (c_void_p * len(output_tensors))(*output_ptrs)
-        current_stream = torch_dipu.current_stream(self.device_id).dipu_stream
-        graph_manager.graph_manager.run(self.graph_id, current_stream, input_ptrs_c,
+        # current_stream = torch_dipu.current_stream(self.device_id).dipu_stream
+        context, ret = acl.rt.get_context()
+        current_stream, ret = acl.rt.create_stream()
+        graph_manager.graph_manager.run((c_void_p)(context), self.graph_id, (c_void_p)(current_stream), input_ptrs_c,
                                         output_ptrs_c, self.input_datasize_c, self.output_datasize_c)
         ret = acl.rt.synchronize_stream(current_stream)
+        ret = acl.rt.destroy_stream(current_stream)
         check_ret("acl.rt.synchronize_stream", ret)
         return output_tensors
 
@@ -363,10 +366,13 @@ class GEDynamicGraphExecutor(object):
                 output_tensors.append(item)
 
         output_ptrs_c = (c_void_p * len(output_tensors))(*output_ptrs)
-        current_stream = torch_dipu.current_stream(self.device_id).dipu_stream
-        graph_manager.graph_manager.run(self.graph_id, current_stream, input_ptrs_c,
+        # current_stream = torch_dipu.current_stream(self.device_id).dipu_stream
+        context, ret = acl.rt.get_context()
+        current_stream, ret = acl.rt.create_stream()
+        graph_manager.graph_manager.run((c_void_p)(context), self.graph_id, (c_void_p)(current_stream), input_ptrs_c,
                                         output_ptrs_c, input_datasize_c, output_datasize_c)
         ret = acl.rt.synchronize_stream(current_stream)
+        ret = acl.rt.destroy_stream(current_stream)
         check_ret("acl.rt.synchronize_stream", ret)
         return output_tensors
 
