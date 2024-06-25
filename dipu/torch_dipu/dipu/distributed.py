@@ -73,6 +73,48 @@ def _wrap_init_process_groups(
     )
 
 
+_raw_new_process_group_helper = dist.distributed_c10d._new_process_group_helper
+
+
+def _wrap_new_process_group_helper(
+    group_size,
+    group_rank,
+    global_ranks_in_group,
+    backend,
+    store,
+    pg_options=None,
+    group_name=None,
+    timeout=default_pg_timeout,
+    pg_tag=None,
+):
+    if backend == None or (backend == Backend.NCCL and mockcuda):
+        backend = dicl_backend
+    # compatibility between torch 2.0.0 and 2.1.0 for param `pg_tag`
+    if pg_tag is None:
+        return _raw_new_process_group_helper(
+            group_size,
+            group_rank,
+            global_ranks_in_group,
+            backend,
+            store,
+            pg_options,
+            group_name,
+            timeout,
+        )
+    else:
+        return _raw_new_process_group_helper(
+            group_size,
+            group_rank,
+            global_ranks_in_group,
+            backend,
+            store,
+            pg_options,
+            group_name,
+            timeout,
+            pg_tag,
+        )
+
+
 # seems only mmcv use this func to determine backend, so we return nccl
 # if backend it's dicl. or do we need to change _world.pg_map value?
 _raw_get_backend = dist.get_backend
@@ -116,6 +158,7 @@ def _wrap_new_group(
 def apply_dist_patch():
     dist.get_backend = _wrap_get_backend
     dist.init_process_group = _wrap_init_process_groups
+    dist.distributed_c10d._new_process_group_helper = _wrap_new_process_group_helper
     dist.ProcessGroup._register_backend = _wrapped_register_backend
     # rm batch_isend_irecv after coalse ready
     if dipu.get_dipu_torch_version() != dipu.torch_ver_200:

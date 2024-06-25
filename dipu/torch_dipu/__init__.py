@@ -12,6 +12,15 @@ mockcuda = (
 )
 
 import torch
+
+# temp fix for DeviceContext
+try:
+    from torch.utils._device import _device_constructors
+
+    _device_constructors()
+except:
+    pass
+
 from typing import Tuple, List, Union, Sequence
 from torch.types import _int, _size, Device, Number
 from torch import Tensor
