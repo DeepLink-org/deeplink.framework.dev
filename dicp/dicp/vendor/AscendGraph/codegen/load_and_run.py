@@ -116,7 +116,7 @@ class MemoryPool:
             free, _, ret = acl.rt.get_mem_info(ACL_HBM_MEM)
             check_ret("acl.rt.get_mem_info", ret)
             
-            self.work_size = int(6 * 1024 * 1024 * 1024)
+            self.work_size = int(1 * 1024 * 1024 * 1024)
             self.work_tensor = torch.empty(
                 self.work_size, dtype=torch.bool, device=dipu_device_str)
             self.work_ptr = self.work_tensor.data_ptr()

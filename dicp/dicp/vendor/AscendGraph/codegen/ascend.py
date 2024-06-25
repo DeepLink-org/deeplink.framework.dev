@@ -238,16 +238,6 @@ class AscendCodegen(torch.fx.Interpreter):
                     if not torch.allclose(a, b, atol=atol, rtol=rtol, equal_nan=True):
                         import pdb;pdb.set_trace()
                         pass
-                
-                def dump_tensors(args):
-                    dir_path = '/tzy/dynamic_shape/lightllm'
-                    new_args = list(args)
-                    for i, x in enumerate(new_args):
-                        if not isinstance(x, int):
-                            x = x.cpu()
-                        new_args[i] = x
-                    with open(dir_path + '/args.pkl', 'wb') as f:
-                        pickle.dump(new_args, f)
             """, strip=True
         )
         return self.import_code.getvalue()
@@ -267,7 +257,7 @@ class AscendCodegen(torch.fx.Interpreter):
         # dynamic shape feature
         if len(self.sym_in_args) > 0 or len(self.sym_to_inputs) > 0:
             args = ['_' if arg not in shape_symint and arg not in self.sym_to_inputs.values() else arg for arg in self.args]
-            call_body.writeline(f"dump_tensors(args)")
+            # call_body.writeline(f"dump_tensors(args)")
             call_body.writeline(f"({','.join(args)}) = args")
 
             # assign SymInt to InputArgs relationship
@@ -1626,13 +1616,14 @@ class AscendOverrides:
         return op.to_node()
 
     @staticmethod
-    def PromptFlashAttention(name, q, k, v, head_num, seqlen, mask, head_dim):
+    def PromptFlashAttention(name, q, k, v, head_num, seqlen, mask, head_dim, numKeyValueHeads):
         op = OP(name, "PromptFlashAttention")
         op.set_input("query", q)
         op.set_input("key", k)
         op.set_input("value", v)
         op.set_input("atten_mask", mask)
         op.set_attr_int("num_heads", head_num)
+        op.set_attr_int("num_key_value_heads", numKeyValueHeads)
         op.set_attr_float("scale_value", float(1 / math.sqrt(head_dim)))
         op.set_attr_str("input_layout", "BSH")
         return op.to_node()
@@ -1644,7 +1635,6 @@ class AscendOverrides:
         op.set_dynamic_input("key", kv_input_num, k_list)
         op.set_dynamic_input("value", kv_input_num, v_list)
         op.set_attr_int("num_heads", head_num)
-        
         # op.set_attr_float("scale_value", float(1 / math.sqrt(dim)))
         op.set_attr_int("num_key_value_heads", kv_head_num)
         op.set_attr_str("input_layout", input_layout)

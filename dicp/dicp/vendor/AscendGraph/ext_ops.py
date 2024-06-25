@@ -50,17 +50,17 @@ def lightllm_rms_norm_impl(x, weight, eps):
 
 
 @torch._custom_op.impl.custom_op('lightllm::prompt_attention_inference')
-def prompt_attention_inference(q: Tensor, k: Tensor, v: Tensor, seqlen: Tensor, num_head: int, head_dim: int) -> Tensor:
+def prompt_attention_inference(q: Tensor, k: Tensor, v: Tensor, seqlen: Tensor, num_head: int, head_dim: int, numKeyValueHeads: int) -> Tensor:
     ...
 
 
 @prompt_attention_inference.impl_abstract()
-def lightllm_prompt_attention_inference_abstract(q: Tensor, k: Tensor, v: Tensor, seqlen: Tensor, num_head: int, head_dim: int):
+def lightllm_prompt_attention_inference_abstract(q: Tensor, k: Tensor, v: Tensor, seqlen: Tensor, num_head: int, head_dim: int, numKeyValueHeads: int):
     return torch.empty_like(q)
 
 
 @prompt_attention_inference.impl(['cpu', 'cuda'])
-def lightllm_prompt_attention_inference_impl(q, k, v, seqlen, num_head, head_dim):
+def lightllm_prompt_attention_inference_impl(q, k, v, seqlen, num_head, head_dim, numKeyValueHeads: int):
     assert q.shape[0] == 1, "prompt attention just support bs=1 for now."
     bs = q.shape[0]
     seqlen = seqlen.item()
