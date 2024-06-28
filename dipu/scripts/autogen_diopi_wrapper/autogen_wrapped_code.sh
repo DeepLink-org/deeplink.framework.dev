@@ -14,7 +14,7 @@ GENERATED_KERNELS=${5:-$DIPU_DIR/torch_dipu/csrc_dipu/aten/ops/AutoGenedKernels.
 GENERATED_KERNELS_VENDOR=${DIPU_DIR}/third_party/DIOPI/impl/${UsedVendor}/convert_config.yaml
 
 PYTHON_CMD="python3 ${GENERATED_KERNELS_SCRIPT} --out=${GENERATED_KERNELS} --config=${GENERATED_KERNELS_CONFIG} \
-    --print_op_arg=True --use_diopi_adapter=False --print_func_call_info=True \
+    --print_op_arg=True --use_diopi_adapter=False --print_func_call_info=True --remove_check_code=True\
     --fun_config_dict='{\"current_device\":\"${UsedVendor}\",\"current_torch_ver\":\"${Torch_VERSION}\"}'"
 
 if [ -f "$GENERATED_KERNELS_VENDOR" ]; then
