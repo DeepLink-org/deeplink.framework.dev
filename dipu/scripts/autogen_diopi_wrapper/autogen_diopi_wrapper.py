@@ -182,13 +182,13 @@ def create_print_op_args_code(fun_config):
         fun_config["schema"]
     )
     code = ""
-    if len(inputs) < 0:
-        return code
-    code += "if (dumpOpArgLevel() > 1) {\n"
-    for input in inputs:
-        input = input.strip()
-        code += f'  std::cout << "\t{opname}:\t{input}:" << dumpArg({input}) << std::endl;\n'
-    code += "}"
+    # if len(inputs) < 0:
+    #     return code
+    # code += "if (dumpOpArgLevel() > 1) {\n"
+    # for input in inputs:
+    #     input = input.strip()
+    #     code += f'  std::cout << "\t{opname}:\t{input}:" << dumpArg({input}) << std::endl;\n'
+    # code += "}"
     return code
 
 
@@ -544,23 +544,23 @@ def create_result_compare_code(fun_config):
     op_name = get_op_name_from_schema(schema)
     return_names = get_function_return_param_from_schema(schema)
     code = ""
-    separator_code = f'std::cout << "--------------------" << std::endl;\n'
+    # separator_code = f'std::cout << "--------------------" << std::endl;\n'
 
-    if len(return_names) == 1:
-        code += separator_code
-        code += f'std::cout << "autocompare:\t{op_name}\t{return_names[0]}:" << std::endl << allclose_autocompare(result_cpu, result_device) << std::endl;\n'
-    elif len(return_names) > 1:
-        for i in range(len(return_names)):
-            code += separator_code
-            code += f'std::cout << "autocompare:\t{op_name}\t{return_names[i]}:" << std::endl << allclose_autocompare(std::get<{i}>(result_cpu), std::get<{i}>(result_device)) << std::endl;\n'
+    # if len(return_names) == 1:
+    #     code += separator_code
+    #     code += f'std::cout << "autocompare:\t{op_name}\t{return_names[0]}:" << std::endl << allclose_autocompare(result_cpu, result_device) << std::endl;\n'
+    # elif len(return_names) > 1:
+    #     for i in range(len(return_names)):
+    #         code += separator_code
+    #         code += f'std::cout << "autocompare:\t{op_name}\t{return_names[i]}:" << std::endl << allclose_autocompare(std::get<{i}>(result_cpu), std::get<{i}>(result_device)) << std::endl;\n'
 
     inputs = re.findall("Tensor +([\w\d_]+)", schema[: schema.find("->")])
     inputs += re.findall(
         "Tensor *\([a-z]!\) *\[ *\] +([\w\d_]+)", schema[: schema.find("->")]
     )
-    for i in range(len(inputs)):
-        code += separator_code
-        code += f'std::cout << "autocompare:\t{op_name}\t{inputs[i]}: " << std::endl << allclose_autocompare({inputs[i]}_cpu, {inputs[i]}) << std::endl;\n'
+    # for i in range(len(inputs)):
+    #     code += separator_code
+    #     code += f'std::cout << "autocompare:\t{op_name}\t{inputs[i]}: " << std::endl << allclose_autocompare({inputs[i]}_cpu, {inputs[i]}) << std::endl;\n'
     return code
 
 
@@ -568,11 +568,12 @@ def create_code_to_print_fun_call_info_from_schema(fun_config):
     op_name = get_op_name_from_schema(fun_config["schema"])
     diopi_func = fun_config.get("interface", "")
     diopi_func = diopi_func[0 : diopi_func.find("(")]
-    debug_code = "if (dumpOpArgLevel() > 0) {\n"
-    debug_code += (
-        f'  printf("--%-50s %-30s \\n", "[{op_name}]:", "{diopi_func}");' + "\n"
-    )
-    debug_code += "}\n"
+    debug_code = ""
+    # debug_code = "if (dumpOpArgLevel() > 0) {\n"
+    # debug_code += (
+    #     f'  printf("--%-50s %-30s \\n", "[{op_name}]:", "{diopi_func}");' + "\n"
+    # )
+    # debug_code += "}\n"
     return debug_code
 
 
@@ -643,18 +644,18 @@ def create_device_check_code(fun_config):
     for args in exclude_tensors:
         tensors.discard(args)
     op_name = get_op_name_from_schema(fun_config["schema"])
-    if len(tensors) > 0:
-        code += "if (checkTensorDevice()) {\n"
+    # if len(tensors) > 0:
+    #     code += "if (checkTensorDevice()) {\n"
 
-    for args in set(tensors):
-        if not args.endswith("?"):
-            code += f'  TORCH_CHECK(({args}.defined() == false) || ({args}.device().type() == dipu::DIPU_DEVICE_TYPE), __FILE__, ":", __LINE__, ": {op_name}: {args} should be on dipu");\n'
-        else:
-            args = args[0:-1]
-            code += f'  TORCH_CHECK(({args}.has_value() == false) || ({args}.value().defined() == false) || ({args}.value().device().type() == dipu::DIPU_DEVICE_TYPE), __FILE__, ":", __LINE__, "{op_name}: {args} should be on dipu");\n'
+    # for args in set(tensors):
+    #     if not args.endswith("?"):
+    #         code += f'  TORCH_CHECK(({args}.defined() == false) || ({args}.device().type() == dipu::DIPU_DEVICE_TYPE), __FILE__, ":", __LINE__, ": {op_name}: {args} should be on dipu");\n'
+    #     else:
+    #         args = args[0:-1]
+    #         code += f'  TORCH_CHECK(({args}.has_value() == false) || ({args}.value().defined() == false) || ({args}.value().device().type() == dipu::DIPU_DEVICE_TYPE), __FILE__, ":", __LINE__, "{op_name}: {args} should be on dipu");\n'
 
-    if len(tensors) > 0:
-        code += "}"
+    # if len(tensors) > 0:
+    #     code += "}"
 
     return code
 

@@ -115,10 +115,6 @@ $cppsignautre {
 
   $custom_code_before_call_diopi
 
-  dipu::profile::RecordBlockCreator dipuRecorder(R"($interface_name)");
-  ::diopiError_t ret = $diopi_fun_call_code
-  dipuRecorder.end();
-  TORCH_CHECK(ret == ::diopiSuccess, __FILE__, ":", __LINE__, R"($diopi_fun_call_code)", " error, error code is ", ret, "error message is ", diopiGetLastErrorString());
 
   $custom_code_before_return
 
@@ -203,7 +199,7 @@ $cppsignautre {
 autocompare_template_content = """
 //  $comment
 $cppsignautre {
-  std::cout << std::endl << __FUNCTION__ << std::endl;
+  
   $transform_input_to_cpu_code
 
   $execute_op_on_cpu_code

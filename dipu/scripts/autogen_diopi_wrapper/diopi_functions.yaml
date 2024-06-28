@@ -10,11 +10,10 @@
   dummy_call_diopi: False # Does not generate code that actually calls the diopi function, default value is False
   custom_code_at_the_beginning: "/* Here can be a piece of c++ code at the beginning*/"
   custom_code_before_call_diopi: |
-    std::cout << "self:" << self << std::endl;
-    std::cout << "other:" << other << std::endl;
+
   custom_code_before_return: |
     dipu::getCurrentDIPUStream().synchronize();
-    std::cout << "out:" << out << std::endl;
+
   interface: diopiAddScalar(ctx, out, self, other, alpha)
 
 - schema: "aten::fill_.Scalar(Tensor(a!) self, Scalar value) -> Tensor(a!)"
@@ -25,14 +24,12 @@
 
 - schema: "add_.Scalar(Tensor(a!) self, Scalar other, Scalar alpha=1) -> Tensor(a!)"
   custom_code_at_the_beginning: |
-    TORCH_CHECK(!( (c10::isFloatingType(other.type())) && (!c10::isFloatingType(self.scalar_type())) ), __FUNCTION__, ":", __FILE__, ":", __LINE__,
-        " result type Float can't be cast to the desired output type Int");
+
   interface: diopiAddInpScalar(ctx, self, other, alpha)
 
 - schema: "add_.Tensor(Tensor(a!) self, Tensor other, *, Scalar alpha=1) -> Tensor(a!)"
   custom_code_at_the_beginning: |
-    TORCH_CHECK(!( (c10::isFloatingType(other.scalar_type())) && (!c10::isFloatingType(self.scalar_type())) ), __FUNCTION__, ":", __FILE__, ":", __LINE__,
-        " result type Float can't be cast to the desired output type Int");
+
     if (other.dim() == 0 && other.is_cpu()) {
         return dipu_add__scalar(self, other.item(), alpha);
     }
@@ -314,8 +311,7 @@
 
 - schema: "_adaptive_avg_pool2d(Tensor self, SymInt[2] output_size) -> Tensor"
   custom_code_at_the_beginning: |
-    TORCH_CHECK(output_size.size() == 2, __func__, ":", __FILE__, ":", __LINE__,
-        " output_size should equal 2, size is ", output_size.size());
+
     auto out_tensor_size = self.sizes().vec();
     out_tensor_size[self.dim() - 2] = output_size[0].expect_int();
     out_tensor_size[self.dim() - 1] = output_size[1].expect_int();
@@ -1626,9 +1622,7 @@
 
 - schema: "bmm(Tensor self, Tensor mat2) -> Tensor"
   custom_code_at_the_beginning: |
-    TORCH_CHECK(self.dim() == 3, "Tensor self shoud be 3-D tensor.");
-    TORCH_CHECK(mat2.dim() == 3, "Tensor mat2 shoud be 3-D tensor.");
-    TORCH_CHECK(self.size(0) == mat2.size(0), "Tensor batch size of self and mat2 shoud be equal.");
+
     auto out = nodispatch::empty({self.size(0), self.size(1), mat2.size(2)}, self.options());
   interface: diopiBmm(ctx, out, self, mat2)
 
@@ -2223,8 +2217,7 @@
   custom_fallback: True
   custom_code_at_the_beginning: |
     // add TORCH_CHECK for torch 2.1 new test which check if runtime exception throwed in this case.
-    TORCH_CHECK(!indices.empty() || at::is_expandable_to(values.sizes(), self.sizes()), "shape mismatch: value tensor of shape ",
-          values.sizes(), " cannot be broadcast to indexing result of shape ", self.sizes());
+    
     std::vector<at::Tensor> indices_tensor_vec(indices.size());
     std::vector<diopiConstTensorHandle_t> indices_vec(indices.size(), nullptr);
     for (int i = 0; i < indices.size(); ++i) {
