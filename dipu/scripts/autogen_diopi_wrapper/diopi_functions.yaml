@@ -106,7 +106,7 @@
         return dipu_div_scalar_out(self, other.item(), out);
     }
     if (is_scalar_on_cpu(self)) {
-        at::Tensor selfD = nodispatch::empty_like(other);
+        at::Tensor selfD = nodispatch::empty({1}, out.options());
         dipu_fill__scalar(selfD, self.item());
         return dipu_div_out(selfD, other, out);
     }
@@ -131,7 +131,7 @@
     }
     at::Tensor selfTmp;
     if (is_scalar_on_cpu(self)) {
-        selfTmp = nodispatch::empty_like(other);
+        selfTmp = nodispatch::empty({1}, out.options());
         dipu_fill__scalar(selfTmp, self.item());
     } else {
       selfTmp = self;
