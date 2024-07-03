@@ -410,7 +410,7 @@
 
 - schema: "eq_.Tensor(Tensor(a!) self, Tensor other) -> Tensor(a!)"
   custom_code_at_the_beginning: |
-    if (is_scalar_on_cpu()) {
+    if (is_scalar_on_cpu(other)) {
         return dipu_eq__scalar(self, other.item());
     }
   interface: diopiEqInp(ctx, self, other)
