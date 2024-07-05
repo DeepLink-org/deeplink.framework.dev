@@ -1,6 +1,5 @@
 // Copyright (c) 2023, DeepLink.
 
-#include <cstddef>
 #include <functional>
 #include <memory>
 #include <stack>
@@ -8,19 +7,15 @@
 #include <utility>
 #include <vector>
 
-#include "csrc_dipu/utils/env.hpp"
-
 #include "DIPUCachingAllocator.h"
 #include "DIPUSpinMutex.h"
 
 namespace dipu {
 
 inline size_t round_up_to_alignment(size_t nbytes, size_t alignment_size) {
-  if (nbytes <= 0) {
-    return alignment_size;
-  }
   return ((nbytes - 1) | (alignment_size - 1)) + 1;
 }
+
 class BFCachingAllocatorImpl {
  public:
   using allocate_fn_t = std::function<void*(size_t)>;
@@ -34,12 +29,23 @@ class BFCachingAllocatorImpl {
   // Number of second level bins (linearly)
   static constexpr int kNumSubBins = 4;
   static constexpr int kLogNumSubBins = 2;
+
   // Allocation parameters
-  static constexpr int kMinAllocationSize = 512;
-  static constexpr int kSmallBlockSize = 2 << 20;
-  static constexpr int kMiddleBlockSize = 20 << 20;
-  static constexpr int kLargeBlockSize = 200 << 20;
-  static constexpr int kLargeAlignSize = 1024 << 20;
+  static constexpr size_t kMinBlockSize =
+      512;  // all sizes are rounded to at least 512 bytes
+  static constexpr size_t kSmallSize =
+      1048576;  // largest "small" allocation is 1 MiB
+  static constexpr size_t kSmallBuffer =
+      2097152;  // "small" allocations are packed in 2 MiB blocks
+  static constexpr size_t kLargeBuffer =
+      20971520;  // "large" allocations may be packed in 20 MiB blocks
+  static constexpr size_t kMinLargeAlloc =
+      10485760;  // allocations between 1 and 10 MiB may use kLargeBuffer
+  static constexpr size_t kRoundLarge =
+      2097152;  // round up large allocations to 2 MiB
+  static constexpr size_t kMaxSplitableBlockSize =
+      200 << 20;  // To further reduce fragmentation, blocks >= 200MB are not
+                  // allowed to be split
 
   size_t cachedBytes = 0;
   size_t allocatedBytes = 0;
@@ -143,10 +149,11 @@ class BFCachingAllocatorImpl {
   mutable mutex_t mut_;
 
   static size_t roundBytes(size_t nbytes) {
-    if (nbytes < kLargeBlockSize) {
-      return round_up_to_alignment(nbytes, kMinAllocationSize);
+    if (nbytes <= kMinBlockSize) {
+      return kMinBlockSize;
     }
-    return round_up_to_alignment(nbytes, kSmallBlockSize);
+    int clz = __builtin_clzll(nbytes - 1);
+    return (1 << (sizeof(int64_t) - clz));
   }
 
   int newChunk(void* ptr, size_t size, size_t stream) {
@@ -169,7 +176,7 @@ class BFCachingAllocatorImpl {
     // Big bin range:
     //      [2^`bigBinIdx`, 2^(`bigBinIdx`+1)), length: 2^`bigBinIdx`
     // Split big bin into `kNumSubBins` sub bins
-    size_t nBlocks = nbytes / kMinAllocationSize;
+    size_t nBlocks = nbytes / kMinBlockSize;
     constexpr int kMaxBinIdx = 63;
     int bigBinIdx = kMaxBinIdx - __builtin_clzll(nBlocks);
     // If `nbytes` is so large, we just put it into the last
@@ -297,33 +304,32 @@ class BFCachingAllocatorImpl {
     return id;
   }
 
+  size_t getAllocateSize(size_t nbytes) {
+    if (nbytes <= kSmallSize) {
+      return kSmallBuffer;
+    }
+    if (nbytes < kMinLargeAlloc) {
+      return kLargeBuffer;
+    }
+    return round_up_to_alignment(nbytes, kRoundLarge);
+  }
+
   int extend(size_t nbytes, StreamSetHandle& set) {
     emptyCacheWithoutLock();
-    bool increased = false;
-    size_t allocateSize = nbytes;
-    if (nbytes < kSmallBlockSize) {
-      allocateSize = kSmallBlockSize;
-    } else if (nbytes < kMiddleBlockSize) {
-      allocateSize = kMiddleBlockSize;
-    } else if (nbytes < kLargeBlockSize) {
-      allocateSize = round_up_to_alignment(nbytes, kMiddleBlockSize);
-    } else {
-      allocateSize = round_up_to_alignment(nbytes, kLargeAlignSize);
-    }
+    size_t allocateSize = getAllocateSize(nbytes);
 
-    size_t currBytes = std::max(nbytes, allocateSize);
-    void* ptr = allocateOnDevice(currBytes);
+    void* ptr = allocateOnDevice(allocateSize);
     if (!ptr) {
-      if (currBytes > nbytes) {
-        currBytes = nbytes;
-        ptr = allocateOnDevice(currBytes);
+      if (allocateSize > nbytes) {
+        allocateSize = nbytes;
+        ptr = allocateOnDevice(allocateSize);
       }
     }
     if (!ptr) {
       return 0;
     }
 
-    int id = newChunk(ptr, currBytes, set->id);
+    int id = newChunk(ptr, allocateSize, set->id);
     return id;
   }
 
@@ -378,17 +384,7 @@ class BFCachingAllocatorImpl {
     }
 
     if (id) {
-      int internlalMaxFragnmentSize = 0;
-      const int chunk_size = static_cast<int>(chunks_[id].size);
-      if (chunk_size < kSmallBlockSize) {
-        internlalMaxFragnmentSize = kMinAllocationSize;
-      } else if (chunk_size < kLargeAlignSize) {
-        internlalMaxFragnmentSize = kSmallBlockSize;
-      } else {
-        internlalMaxFragnmentSize = kLargeAlignSize;
-      }
-      if ((chunk_size >= (nbytes << 1)) ||
-          (chunk_size > (nbytes + internlalMaxFragnmentSize))) {
+      if (chunks_[id].size >= (nbytes << 1)) {
         id = split(id, nbytes);
       }
       chunks_[id].allocated = true;
