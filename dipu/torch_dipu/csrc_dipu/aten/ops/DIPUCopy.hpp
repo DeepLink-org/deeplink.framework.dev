@@ -168,10 +168,9 @@ inline void memCopy(const at::Tensor& dst, const at::Tensor& src,
   }
 }
 
-class CopyParamsInfo {
+class CopyParamsInfoBase {
  public:
   DIPUCopyType copyType_;
-  DIPUStream curStream_;
   // basic info
   // if cast needed
   bool sameDtype_ = false;
@@ -196,18 +195,22 @@ class CopyParamsInfo {
     srcDevice_ = src.device().index();
     dstDevice_ = dst.device().index();
   }
-
-  explicit CopyParamsInfo(const at::Tensor& dst, const at::Tensor& src,
-                          const DIPUStream& curStream) {
-    // assume layout always = not suppport Sparse layout
+  
+  explicit CopyParamsInfoBase(const at::Tensor& dst, const at::Tensor& src) {
     TORCH_CHECK(dst.options().layout() == c10::Layout::Strided,
-                "only Strided layout is supported");
+        "only Strided layout is supported");
     copyType_ = getCopyType(dst, src);
-    curStream_ = curStream;
-
+    
     recomputeTensorsInfo(dst, src);
   }
+};
 
+class CopyParamsInfo: public CopyParamsInfoBase {
+public:
+  DIPUStream curStream_;
+  explicit CopyParamsInfo(const at::Tensor& dst, const at::Tensor& src,
+                          const DIPUStream& curStream):CopyParamsInfoBase(dst,src),curStream_(curStream) {}
+  explicit CopyParamsInfo(const CopyParamsInfoBase& info,const DIPUStream& curStream):CopyParamsInfoBase(info),curStream_(curStream) {}
   void updateCopyType(DIPUCopyType copyType) { copyType_ = copyType; }
 };
 
@@ -624,26 +627,7 @@ class DIPUCopyInplace : public DIPUCopyBase {
   // nchw), we don't handle this
   virtual void copyNodirectOnDevice(at::Tensor& dst, const at::Tensor& src,
                                     bool non_blocking, CopyParamsInfo& info) {
-    if (DiopiCast) {
-      at::Tensor tmpSrc = src;
-      if (!info.sameDtype_) {
-        tmpSrc = native::dipu_wrap_diopi_cast_dtype(src, dst.scalar_type());
-        info.recomputeTensorsInfo(dst, tmpSrc);
-      }
-      // after cast
-      if (info.directMemCopy_) {
-        doDirectMemCopy(dst, tmpSrc, info.curStream_, info.copyType_,
-                        !tmpSrc.is_same(src));
-      } else if (DiopiCopy) {
-        native::dipu_wrap_diopi_copy_inp(dst, tmpSrc, non_blocking);
-      } else {
-        doCpuRelayCopy(dst, src, info.curStream_, non_blocking);
-      }
-    } else if (DiopiCopy) {  // !DiopiCast
       native::dipu_wrap_diopi_copy_inp(dst, src, non_blocking);
-    } else {
-      doCpuRelayCopy(dst, src, info.curStream_, non_blocking);
-    }
   }
 
   // NOTICE: handle no-direct mem copy between different devices, dipu has
