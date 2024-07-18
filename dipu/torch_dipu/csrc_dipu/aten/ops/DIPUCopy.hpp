@@ -366,7 +366,14 @@ class DIPUCopyInplace : public DIPUCopyBase {
 
     auto info = CopyParamsInfo(dst, src, curStream);
     if (info.copyType_ == DIPUCopyType::D2Self) {
-      non_blocking = true;
+      auto defaultStream = dipu::getDefaultDIPUStream();
+      if (curStream != defaultStream) {
+        non_blocking = false;
+        defaultStream.synchronize();
+        curStream.synchronize();
+      } else {
+        non_blocking = true;
+      }
     }
 
     // Exit early if dst and src are views of the same data
