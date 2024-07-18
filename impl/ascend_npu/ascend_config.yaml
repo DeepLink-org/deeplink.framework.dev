@@ -91,6 +91,7 @@ ascend:
 - diopiGeScalar
 - diopiGelu
 - diopiGeluBackward
+- diopiGroupedGemm
 - diopiGroupNorm
 - diopiGroupNormBackward
 - diopiGt

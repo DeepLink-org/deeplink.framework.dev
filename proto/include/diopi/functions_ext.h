@@ -686,6 +686,9 @@ DIOPI_API diopiError_t diopiPromptFlashAttention(diopiContextHandle_t ctx, diopi
                                                  diopiSize_t actual_seq_lengths, int64_t max_input_len, int64_t num_heads, int64_t num_kv_heads, int64_t dim);
 // ============================================lightllm end========================================
 
+DIOPI_API diopiError_t diopiGroupedGemm(diopiContextHandle_t ctx, diopiTensorHandle_t outs, diopiConstTensorHandle_t inputs, diopiConstTensorHandle_t weights,
+                                        diopiConstTensorHandle_t batchSizes, bool transInputs, bool transWeights);
+
 #if defined(__cplusplus)
 }
 #endif  // __cplusplus
