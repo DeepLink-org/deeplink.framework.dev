@@ -689,6 +689,9 @@ DIOPI_API diopiError_t diopiPromptFlashAttention(diopiContextHandle_t ctx, diopi
 DIOPI_API diopiError_t diopiGroupedGemm(diopiContextHandle_t ctx, diopiTensorHandle_t outs, diopiConstTensorHandle_t inputs, diopiConstTensorHandle_t weights,
                                         diopiConstTensorHandle_t batchSizes, bool transInputs, bool transWeights);
 
+DIOPI_API diopiError_t diopiGroupedGemmBackward(diopiContextHandle_t ctx, diopiTensorHandle_t gradInputs, diopiTensorHandle_t gradWeights, diopiConstTensorHandle_t inputs, diopiConstTensorHandle_t weights,
+                                        diopiConstTensorHandle_t batchSizes, diopiConstTensorHandle_t grad, bool transInputs, bool transWeights);
+
 #if defined(__cplusplus)
 }
 #endif  // __cplusplus
