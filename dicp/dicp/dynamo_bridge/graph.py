@@ -32,6 +32,11 @@ class GraphTransformer:
             self.backend_opset_transform = ascendgraph_opset_convert
             from dicp.vendor.AscendGraph.codegen.ascend import AscendCodegen
             self.backend_codegen = AscendCodegen
+        elif backend == 'atbgraph':
+            from dicp.vendor.AtbGraph.opset_convert import atbgraph_opset_convert
+            self.backend_opset_transform = atbgraph_opset_convert
+            from dicp.vendor.AtbGraph.codegen.atb import AtbCodegen
+            self.backend_codegen = AtbCodegen
 
     def transform(self):
         self.gm = self.backend_opset_transform(self.gm)

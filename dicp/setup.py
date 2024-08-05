@@ -50,12 +50,13 @@ def main():
             'torch_dynamo_backends': [
                 'topsgraph = dicp.vendor.TopsGraph:topsgraph',
                 'ascendgraph = dicp.vendor.AscendGraph:ascendgraph',
+                'atbgraph = dicp.vendor.AtbGraph:ascendgraph',
             ]
         },
         python_requires=">=3.8",
         install_requires=[
             "torch >= 2.0.0a0",
-            "torch_dipu == 0.1"
+            #"torch_dipu == 0.1"
         ]
     )
 

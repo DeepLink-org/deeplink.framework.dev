@@ -1,8 +1,6 @@
 import torch
-import torch_dipu
 from dicp.dynamo_bridge.compile_fx import is_torch_210
-from dicp.vendor.AscendGraph.ascend_op import CastToCpu, IdentityInp
-from dicp.vendor.AscendGraph.conversion import AtenToAscendTransformer
+from dicp.vendor.AtbGraph.conversion import AtenToAtbTransformer
 from ...dynamo_bridge.graph import GraphTransformer
 
 if is_torch_210:
@@ -78,24 +76,14 @@ def symint_in_inputs(nodes):
     return False
 
 
-def ascendgraph_opset_convert(
+def atbgraph_opset_convert(
     gm: torch.fx.GraphModule,
 ):
-    import pdb;pdb.set_trace()
-    if is_torch_210:
-        gm = BackendPatternMatcherTransformer(
-            ascend_pattern_matcher, aten_patterns_cls_list).transform(gm)
-    gm = AtenToAscendTransformer(gm).transform()
+    gm = AtenToAtbTransformer(gm).transform()
 
     # For bug in pytorch
     # Avoid for dynamic shape
-    gt = GraphTransformer(gm, "ascendgraph")
+    gt = GraphTransformer(gm, "atbgraph")
     gt.infer_shape_dtype()
     gm = gt.gm
-    if is_torch_210 and not symint_in_inputs(list(gm.graph.nodes)):
-        gm = BackendPatternMatcherTransformer(
-            ascend_pattern_matcher, ascend_patterns_cls_list).transform(gm)
-    gm = OutputMarkPass().transform(gm)
-    # uncomment this after DIOPI support pytorch2.1.1
-    # gm = ArgsTransDataPass().transform(gm)
     return gm
