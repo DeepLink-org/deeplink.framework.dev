@@ -132,3 +132,47 @@ def add_rms_norm_abstract(x1, x2, gamma, epsilon):
 @add_rms_norm.impl(['cpu', 'cuda'])
 def add_rms_norm_impl(x1, x2, gamma, epsilon):
     return x1 + x2, x1 + x2, x1 + x2
+
+
+@torch._custom_op.impl.custom_op('atb::mlp_gate_v2')
+def mlp_gate_v2(input: Tensor, up: Tensor, gate: Tensor, down: Tensor) -> Tensor:
+    ...
+
+@mlp_gate_v2.impl_abstract()
+def amlp_gate_v2_abstract(input , up, gate, down):
+    return input
+
+
+@mlp_gate_v2.impl(['cpu', 'cuda'])
+def mlp_gate_v2_impl(input, up, gate, down):
+    return input
+
+
+@torch._custom_op.impl.custom_op('atb::silu_and_mul')
+def silu_and_mul(gate_up: Tensor) -> Tensor:
+    ...
+
+@silu_and_mul.impl_abstract()
+def silu_and_mul_abstract(gate_up):
+    gate, up = torch.tensor_split(gate_up, 2, dim=-1)
+    return gate
+
+
+@silu_and_mul.impl(['cpu', 'cuda'])
+def silu_and_mul_impl(gate_up):
+    gate, up = torch.tensor_split(gate_up, 2, dim=-1)
+    return gate
+
+
+@torch._custom_op.impl.custom_op('atb::mlp_gate')
+def mlp_gate(input: Tensor, gate_up: Tensor, down: Tensor) -> Tensor:
+    ...
+
+@mlp_gate.impl_abstract()
+def mlp_gate_abstract(input , gate_up, down):
+    return input
+
+
+@mlp_gate.impl(['cpu', 'cuda'])
+def mlp_gate_impl(input, gate_up, down):
+    return input

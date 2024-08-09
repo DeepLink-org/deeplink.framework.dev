@@ -118,13 +118,17 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def identity(self, x, idx):
         return self.get_proxy(atb_op.GetItem, (x, idx))
 
-    @register_conversion(torch.ops.npu.npu_rms_norm.default)
+    @register_conversion(torch.ops.infer_ext.rms_norm.default)
     def npu_rms_norm(self, x, w, eps=1e-6):
         rms_norm = self.get_proxy(atb_op.RmsNorm, (x, w, eps))
         return rms_norm
 
     @register_conversion(torch.ops.atb.rope.default)
     def rope(self, query, key, cos, sin, seqlen):
+        # q_shape = list(query.node.meta['val'].shape)
+        # need_reshape = False
+        # if len(q_shape) == 3:
+        #     query = self.get_proxy(atb_op.View, (query, [q_shape[0], q_shape]))
         rope = self.get_proxy(atb_op.Rope, (query, key, cos, sin, seqlen))
         inplace_1 = self.get_proxy(atb_op.Inplace, (rope, query, 0))
         inplace_2 = self.get_proxy(atb_op.Inplace, (rope, key, 1))
@@ -132,7 +136,6 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
     @register_conversion(torch.ops.atb.context_attention.default)
     def context_attention(self, query, key, value, seqlen, mask):
-        import pdb;pdb.set_trace()
         q_head_num = query.node.meta['val'].shape[-2]
         kv_head_num = key.node.meta['val'].shape[-2]
         out = self.get_proxy(atb_op.SelfAttentionPAEncoder, (query, key, value, seqlen, mask, q_head_num, kv_head_num))
@@ -159,3 +162,80 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def add_rms_norm(self, x1, x2, gamma, epsilon):
         out = self.get_proxy(atb_op.AddRmsNorm, (x1, x2, gamma, epsilon))
         return out
+
+    @register_conversion(torch.ops.aten.t.default)
+    def t(self, input):
+        shape = fx_traceback.get_current_meta()['val'].shape
+        permute_shape = [i for i in range(len(shape))]
+        permute_shape.reverse()
+        return self.get_proxy(atb_op.Transpose, (input, permute_shape))
+
+    @register_conversion(torch.ops.aten.mm.default)
+    def aten_mm(self, x, y):
+        return self.get_proxy(atb_op.Linear, (x, y, None, False, False))
+
+    @register_conversion(torch.ops.aten.add.Tensor)
+    def aten_add_tensor(self, x, y):
+        return self.get_proxy(atb_op.Add, (x, y))
+
+    @register_conversion(torch.ops.aten.view.default)
+    def aten_view(self, x, size):
+        return self.get_proxy(atb_op.View, (x, size))
+
+    @register_conversion(torch.ops.aten.split_with_sizes.default)
+    def split_with_sizes(self, x, size, dim):
+        assert len(size) == 2 or len(size) == 3
+        assert len(set(size)) == 1
+        split = self.get_proxy(atb_op.SplitSharing, (x, size, dim))
+        # graph = self.get_proxy(atb_op.Graph, (split,), {'output': split})
+        return split
+
+    @register_conversion(torch.ops.atb.mlp_gate_v2.default)
+    def mlp_gate_v2(self, input, up, gate, down):
+        # out = self.get_proxy(atb_op.MlpGateV2, (input, up, gate, down))
+        # return out
+        # input: [batch, seqLen, hiddenSize], half
+        # up: [hiddenSize, ffnHiddenSize], half
+        # gate: [hiddenSize, ffnHiddenSize], half
+        # down: [ffnHiddenSize, hiddenSize], half
+        pass
+
+
+    @register_conversion(torch.ops.atb.silu_and_mul.default)
+    def silu_and_mul(self, gate_up):
+        split = self.get_proxy(atb_op.SplitSharing, (gate_up, [1, 1], -1))
+        gate = self.get_proxy(atb_op.GetItem, (split, 0))
+        up = self.get_proxy(atb_op.GetItem, (split, 1))
+        act = self.get_proxy(atb_op.Swish, (gate,))
+        mul = self.get_proxy(atb_op.Mul, (act, up))
+        graph = self.get_proxy(atb_op.Graph, (split, gate, up, act, mul), {'output': mul})
+        return mul
+
+    @register_conversion(torch.ops.atb.mlp_gate.default)
+    def mlp_gate(self, input, gate_up, down):
+        # input: [batch, seqLen, hiddenSize], half
+        # gate_up: [ffnHiddenSize * 2, hiddenSize], half
+        # down: [hiddenSize, ffnHiddenSize], half
+        mm1 = self.get_proxy(atb_op.Linear, (input, gate_up, None, False, True))
+        split = self.get_proxy(atb_op.SplitSharing, (mm1, [1, 1], -1))
+        gate = self.get_proxy(atb_op.GetItem, (split, 0))
+        up = self.get_proxy(atb_op.GetItem, (split, 1))
+        act = self.get_proxy(atb_op.Swish, (gate,))
+        mul = self.get_proxy(atb_op.Mul, (act, up))
+        mm2 = self.get_proxy(atb_op.Linear, (mul, down, None, False, True))
+        graph = self.get_proxy(atb_op.Graph, (mm1, split, gate, up, act, mul, mm2), {'output': mm2})
+        return mm2
+
+    @register_conversion(torch.ops.infer_ext.add_rms_norm.default)
+    def infer_ext_add_rms_norm(self, x1, x2, gamma, epsilon):
+        out = self.get_proxy(atb_op.AddRmsNorm, (x1, x2, gamma, epsilon))
+        y_out = self.get_proxy(atb_op.GetItem, (out, 0))
+        x_out = self.get_proxy(atb_op.GetItem, (out, 2))
+        return self.get_proxy(atb_op.Tuple, (y_out, x_out))
+
+    @register_conversion(torch.ops.aten.sym_size)
+    def symsize(self, x, dim):
+        import pdb;pdb.set_trace()
+        pass
+
+

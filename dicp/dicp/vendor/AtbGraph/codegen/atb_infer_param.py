@@ -1,5 +1,6 @@
 from dataclasses import asdict, dataclass, field
-from enum import Enum, IntEnum
+from enum import Enum, IntEnum, auto
+from typing import Any
 
 
 class AclDataType(IntEnum):
@@ -37,6 +38,26 @@ class ElewiseType(IntEnum):
     ELEWISE_DEQUANT_PER_CHANNEL = 18
     ELEWISE_DYNAMIC_QUANT = 19
     ELEWISE_TANH = 20
+
+class ActivationType(Enum):
+    ACTIVATION_UNDEFINED = 0
+    ACTIVATION_RELU = auto()
+    ACTIVATION_GELU = auto()
+    ACTIVATION_FAST_GELU = auto()
+    ACTIVATION_SWISH = auto()
+    ACTIVATION_LOG = auto()
+    ACTIVATION_SWIGLU_FORWARD = auto()
+    ACTIVATION_SWIGLU_BACKWARD = auto()
+    ACTIVATION_MAX = auto()
+
+class QuantType(Enum):
+    QUANT_UNDEFINED = 0
+    QUANT_INT4 = auto()
+    QUANT_INT8 = auto()
+    QUANT_INT16 = auto()
+    QUANT_FLOAT8 = auto()
+    QUANT_FLOAT16 = auto()
+
 
 
 @dataclass
@@ -197,14 +218,69 @@ class PagedAttentionParam:
 
 @dataclass
 class AddRmsNormParam:
-    epsilon: float = 1.0 
+    epsilon: float = 1.0
+
+
+@dataclass
+class TransposeParam:
+    perm: list[int]
+
+
+@dataclass
+class SplitParam:
+    splitDim: int = 0
+    splitNum: int = 2
+
+
+@dataclass
+class MlpQuantParam:
+    quantType: QuantType = QuantType.QUANT_UNDEFINED
+    elewiseType: ElewiseType = ElewiseType.ELEWISE_UNDEFINED
+    inputScale: float = 1.0
+    inputOffset: int = 0
+    tilingN: int = 0
+    tilingK: int = 0
+    isQuantOp: bool = False
+
+@dataclass
+class MlpCommParam:
+    rank: int = 0
+    rankSize: int = 1
+    rankRoot: int = 0
+    hcclComm: Any = None
+    backend: str = "hccl"
+
+@dataclass
+class MlpGateParamV2:
+    activationType: ActivationType = ActivationType.ACTIVATION_UNDEFINED
+    transposeB: bool = True
+    isBias: bool = False
+    isPack: bool = False
+    isQuant: bool = False
+    isSparse: bool = False
+    noGate: bool = False
+    isBF16: bool = False
+    commDownParam: MlpCommParam = MlpCommParam()
+    quantUpParam: MlpQuantParam = MlpQuantParam()
+    quantGateParam: MlpQuantParam = MlpQuantParam()
+    quantDownParam: MlpQuantParam = MlpQuantParam()
+
+class GeLUMode(IntEnum):
+    TANH_MODE = 0
+    NONE_MODE = 1
+
+@dataclass
+class ActivationParam:
+    activationType: str = "ACTIVATION_UNDEFINED"
+    scale: float = 1.0  # for Swish
+    dim: int = -1       # for Swiglu
+    geluMode: GeLUMode = GeLUMode.TANH_MODE
 
 def custom_asdict_factory(data):
     def convert_value(obj):
         if isinstance(obj, IntEnum):
             return obj.value
         return obj
-
     return {k: convert_value(v) for k, v in data}
 
 def to_dict(data):

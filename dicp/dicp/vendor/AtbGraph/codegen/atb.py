@@ -7,14 +7,15 @@ from torch.fx.node import Node
 from torch.utils._pytree import tree_map_only
 from torch._inductor.utils import IndentedBuffer
 from dicp.dynamo_bridge.utils import symint_in_shape, process_sym_name
-from dicp.vendor.AscendGraph.codegen.utils import (
+from dicp.vendor.AtbGraph.codegen.utils import (
     get_ascend_dtype,
     get_cpp_dtype,
     get_ascend_dtype_num,
     get_torch_dtype,
     AclFormat,
     AclDataType,
-    get_acl_dtype
+    get_acl_dtype,
+    remove_duplicates,
 )
 from collections import OrderedDict
 import dicp.vendor.AtbGraph.codegen.atb_infer_param as infer_param
@@ -73,8 +74,8 @@ class AtbCodegen(torch.fx.Interpreter):
         self.sym_to_inputs = {}
         self.sym_in_args = {}
         
-        aten_graph.print_readable()
-        graph.print_readable()
+        # aten_graph.print_readable()
+        # graph.print_readable()
 
         # for modified args return
         self.assign_args = []
@@ -86,6 +87,7 @@ class AtbCodegen(torch.fx.Interpreter):
         self.atb_graph_ndoes_list = []
         self.atb_getitem_nodes_list = []
         self.atb_inplace_nodes_list = []
+        self.atb_view_nodes_list = []
         self.atb_nodes = OrderedDict()
         self.atb_graph = {}
         self.output_nodes = []
@@ -93,6 +95,7 @@ class AtbCodegen(torch.fx.Interpreter):
         self.atb_getitem_replace_dict = {}
         self.atb_inplace_replace_dict = {}
         self.atb_host_tensor_names = []
+        self.atb_view_tensor_dict = {}
 
         super().__init__(graph)
 
@@ -170,6 +173,8 @@ class AtbCodegen(torch.fx.Interpreter):
                 self.atb_getitem_nodes_list.append(op)
             if isinstance(op, AtbInplaceOperation):
                 self.atb_inplace_nodes_list.append(op)
+            if isinstance(op, AtbViewOperation):
+                self.atb_view_nodes_list.append(op)
         else:
             import pdb;pdb.set_trace()
             pass
@@ -257,7 +262,10 @@ class AtbCodegen(torch.fx.Interpreter):
         # TODO check scalar input
         call_body = IndentedBuffer()
         self.args = [self.args_dict[x.name] for x in self.input_args]
-        call_body.writeline(f"({','.join(self.args)}) = args")
+        if len(self.args) == 1:
+            call_body.writeline(f"{self.args[0]} = args[0]")
+        else:
+            call_body.writeline(f"({','.join(self.args)}) = args")
 
         # assign SymInt to InputArgs relationship
         if len(self.sym_in_args) > 0:
@@ -338,21 +346,8 @@ class AtbCodegen(torch.fx.Interpreter):
         call_body.writeline(f'''inputs = [{','.join(graph_input_names)}]''')
         
         call_body.writeline(f'''outputs = [{','.join(graph_output_names)}]''')
-        call_body.writeline(f'''import pdb;pdb.set_trace()''')
+        # call_body.writeline(f'''import pdb;pdb.set_trace()''')
         call_body.writeline('kernel_cpp_0(inputs, outputs, output_shape)')
-        # call_str = ['output_tensor = kernel_cpp_0(inputs, output_shape)']
-
-        # for i, name in enumerate(self.graph_output_names):
-        #     if name not in self.symint_outputs:
-        #         if name in self.cpu_tensor:
-        #             call_str.append(f'{name} = output_tensor[{i}].cpu()')
-        #         else:
-        #             call_str.append(f'{name} = output_tensor[{i}]')
-        #     else:
-        #         call_str.extend([f'del {name}',
-        #                          f'{name} = int(output_tensor[{i}])'])
-
-        # call_body.writelines(call_str)
 
         py_output_names = self.preprocess_tensor_names(self.py_output_names)
         del_args = [f'del {x}' for x in self.args if x not in py_output_names]
@@ -449,91 +444,133 @@ class AtbCodegen(torch.fx.Interpreter):
     
     def preprocess_tensor_names(self, name_list):
         name_list = self.replace_getitem_name(name_list)
-        # name_list = self.replace_inplace_name(name_list)
         return name_list
 
     def process_atb_graph(self):
-        # process all host tensor
-        for k, v in self.atb_nodes.items():
-            if isinstance(v, AtbSingleOperator):
-                if v.has_host_inputs:
+        def process_view_operations():
+            for view_node in self.atb_view_nodes_list:
+                while view_node.input_name in self.atb_view_tensor_dict.keys():
+                    input_name = self.atb_view_tensor_dict[view_node.input_name].input_name
+                    view_node.input_name = input_name
+                self.atb_view_tensor_dict[view_node.op_name] = view_node
+                del self.atb_nodes[view_node.op_name]
+                
+        def post_delete_view_operations():
+            for k, v in self.atb_nodes.items():
+                if not isinstance(v, AtbViewOperation):
+                    continue
+                del self.atb_nodes[k]
+        
+        def extend_host_tensor_names():
+            for k, v in self.atb_nodes.items():
+                if isinstance(v, AtbSingleOperator) and v.has_host_inputs:
                     self.atb_host_tensor_names.extend(v.host_input_names)
 
-        # process all getitem operation
-        for getitem_node in self.atb_getitem_nodes_list:
-            input_name = getitem_node.input_name
-            index = getitem_node.index
-            op_name = getitem_node.op_name
-            self.atb_getitem_replace_dict[op_name] = f"{input_name}_{index}"
-            del self.atb_nodes[op_name]
-        
-        # process all inplace operation
-        for inplace_node in self.atb_inplace_nodes_list:
-            input_name = inplace_node.input_name
-            target_name = inplace_node.target_name
-            op_name = inplace_node.op_name
-            self.atb_inplace_replace_dict[input_name] = target_name
-            del self.atb_nodes[op_name]
- 
-        # process all graph operations
-        for graph_node in self.atb_graph_ndoes_list:
-            input_names = []
-            output_names = []
-            graph_node.node_size = len(graph_node.node_names)
-            graph_single_ops = {}
-            for single_op_name in graph_node.node_names:
-                single_op = self.atb_nodes[single_op_name]
-                graph_single_ops[single_op_name] = single_op
-                del self.atb_nodes[single_op.op_name]
-                input_names.extend(self.preprocess_tensor_names(single_op.input_names))
-                output_names.extend(self.preprocess_tensor_names(single_op.output_names))
-                graph_node.nodes.append(single_op.build())
-            # internal_names = output_names - graph_node.output_names
-            graph_node.output_names = self.preprocess_tensor_names(graph_node.output_names)
-            graph_node.internal_names = [x for x in output_names if x not in graph_node.output_names]
-            graph_node.input_names = [x for x in input_names if x not in graph_node.internal_names]
+        def process_getitem_operations():
+            for getitem_node in self.atb_getitem_nodes_list:
+                self.atb_getitem_replace_dict[
+                    getitem_node.op_name] = f"{getitem_node.input_name}_{getitem_node.index}"
+                del self.atb_nodes[getitem_node.op_name]
 
-            self.atb_nodes[graph_node.op_name] = graph_node.build()
-        
-        for k, v in self.atb_nodes.items():
-            if not isinstance(v, dict):
-                self.atb_nodes[k] = v.build()
-            print(f'k: {k}  value: {self.atb_nodes[k]}')
+        def process_inplace_operations():
+            for inplace_node in self.atb_inplace_nodes_list:
+                self.atb_inplace_replace_dict[inplace_node.input_name] = inplace_node.target_name
+                del self.atb_nodes[inplace_node.op_name]
 
-        # generate inputs/outputs/internals
-        self.real_graph_input_names = []
-        for input in self.graph_input_names:
-            if input in self.sym_input_names:
-                continue
-            self.real_graph_input_names.append(input)
-        input_output_names = []
-        self.atb_graph["name"] = str(self.graph_id)
-        self.atb_graph["outputNames"] = self.preprocess_tensor_names(self.graph_output_names)
-        self.atb_graph["inputNames"] = self.preprocess_tensor_names(self.real_graph_input_names)
-        self.atb_graph["nodes"] = []
-        for k, v in self.atb_nodes.items():
-            input_names = self.preprocess_tensor_names(v["value"]["inputNames"])
-            output_names = self.preprocess_tensor_names(v["value"]["outputNames"])
-            for input in input_names:
-                if input not in input_output_names:
-                    input_output_names.append(input)
-            for output in output_names:
-                if output not in input_output_names:
-                    input_output_names.append(output)
-            self.atb_graph["nodes"].append(v)
-        internal_names = []
-        for tensor in input_output_names:
-            if tensor not in self.atb_graph["inputNames"] and tensor not in self.atb_graph["outputNames"]:
-                internal_names.append(tensor)
-        self.atb_graph["internalNames"] = internal_names
+        def process_graph_operations():
+            for graph_node in self.atb_graph_ndoes_list:
+                input_names, output_names = [], []    
+                graph_single_ops = {}
+                for single_op_name in graph_node.node_names:
+                    if single_op_name in self.atb_getitem_replace_dict.keys():
+                        input_names.append(self.atb_getitem_replace_dict[single_op_name])
+                        continue
+                    single_op = self.atb_nodes[single_op_name]
+                    graph_single_ops[single_op_name] = single_op
+                    del self.atb_nodes[single_op.op_name]
+
+                    # need reshape inputs
+                    if any(name in self.atb_view_tensor_dict.keys() for name in single_op.input_names):
+                        single_op.has_reshape_inputs = True
+                        single_op.reshape_inputs = []
+                        for i, t in enumerate(single_op.input_names):
+                            if t in self.atb_view_tensor_dict.keys():
+                                single_op.reshape_inputs.append(self.atb_view_tensor_dict[t].target_reshape_info)
+                                single_op.input_names[i] = self.atb_view_tensor_dict[t].input_name
+                            else:
+                                single_op.reshape_inputs.append({"reshapeType": "None"})
+
+                    input_names.extend(
+                        self.preprocess_tensor_names(single_op.input_names))
+                    input_names = remove_duplicates(input_names)
+                    output_names.extend(
+                        self.preprocess_tensor_names(single_op.output_names))
+                    graph_node.nodes.append(single_op.build())
+                # internal_names = output_names - graph_node.output_names
+                graph_node.output_names = self.preprocess_tensor_names(
+                    graph_node.output_names)
+                graph_node.internal_names = [
+                    x for x in output_names if x not in graph_node.output_names]
+                graph_node.input_names = [
+                    x for x in input_names if x not in graph_node.internal_names]
+                graph_node.node_size = len(graph_node.nodes)
+                self.atb_nodes[graph_node.op_name] = graph_node.build()
+
+        def build_remaining_nodes():
+            for k, v in self.atb_nodes.items():
+                if not isinstance(v, dict):
+                    if any(name in self.atb_view_tensor_dict.keys() for name in v.input_names):
+                        v.has_reshape_inputs = True
+                        v.reshape_inputs = []
+                        for i, t  in enumerate(v.input_names):
+                            if t in self.atb_view_tensor_dict.keys():
+                                v.reshape_inputs.append(self.atb_view_tensor_dict[t].target_reshape_info)
+                                v.input_names[i] = self.atb_view_tensor_dict[t].input_name
+                            else:
+                                v.reshape_inputs.append({"reshapeType": "None"})
+                    self.atb_nodes[k] = v.build()
+                # print(f'k: {k}  value: {self.atb_nodes[k]}')
+
+        def generate_inputs_outputs_internals():
+            self.real_graph_input_names = [
+                input for input in self.graph_input_names if input not in self.sym_input_names]
+            input_output_names = []
+            self.atb_graph["name"] = str(self.graph_id)
+            self.atb_graph["outputNames"] = self.preprocess_tensor_names(
+                self.graph_output_names)
+            self.atb_graph["inputNames"] = self.preprocess_tensor_names(
+                self.real_graph_input_names)
+            self.atb_graph["nodes"] = []
+            for k, v in self.atb_nodes.items():
+                input_names = self.preprocess_tensor_names(
+                    v["value"]["inputNames"])
+                output_names = self.preprocess_tensor_names(
+                    v["value"]["outputNames"])
+                for name in input_names + output_names:
+                    if name not in input_output_names:
+                        input_output_names.append(name)
+                self.atb_graph["nodes"].append(v)
+            self.atb_graph["internalNames"] = [
+                tensor for tensor in input_output_names if tensor not in self.atb_graph["inputNames"] and tensor not in self.atb_graph["outputNames"]]
+
+        def generate_host_tensor_names():
+            graph_host_names = []
+            for ni, node in enumerate(self.atb_graph["nodes"]):
+                for ti, name in enumerate(node["value"]["inputNames"]):
+                    if name in self.atb_host_tensor_names:
+                        graph_host_names.append(
+                            {"nodeId": ni, "tensorId": ti, "tensorName": name})
+            self.atb_graph["hostTensorNames"] = graph_host_names
+
+        extend_host_tensor_names()
+        process_getitem_operations()
+        process_inplace_operations()
+        process_view_operations()
+        process_graph_operations()
+        build_remaining_nodes()
+        generate_inputs_outputs_internals()
+        generate_host_tensor_names()
         
-        graph_host_names = []
-        for ni, node in enumerate(self.atb_graph["nodes"]):
-            input_names = node["value"]["inputNames"]
-            for ti, name in enumerate(input_names):
-                if name in self.atb_host_tensor_names:
-                    graph_host_names.append({"nodeId": ni, "tensorId": ti, "tensorName": name})
-        self.atb_graph["hostTensorNames"] = graph_host_names
 
     def generate_code(self):
         self.parse_outputs()
@@ -550,6 +587,8 @@ class AtbSingleOperator:
         self.output_names = []
         self.has_host_inputs = False
         self.host_input_names = []
+        self.has_reshape_inputs = False
+        self.reshape_inputs = []
     
     def set_input(self, x):
         self.input_names = x 
@@ -579,6 +618,8 @@ class AtbSingleOperator:
                 "outputNames": self.output_names,
                 "hasHostInputs": self.has_host_inputs,
                 "hostInputNames": self.host_input_names,
+                "hasReshapeInputs": self.has_reshape_inputs,
+                "reshapeInputs": self.reshape_inputs,
             },
         }
         return node
@@ -598,6 +639,21 @@ class AtbInplaceOperation:
         self.op_type = "inplaceOperation"
         self.input_name = ""
         self.target_name = ""
+
+class AtbTupleOperation:
+    def __init__(self, name: str):
+        self.op_name = name
+        self.op_type = "tupleOperation"
+        self.target_name = ""
+
+
+class AtbViewOperation:
+    def __init__(self, name):
+        self.op_name = name
+        self.op_type = "viewOperation"
+        self.input_name = ""
+        self.target_shape = []
+        self.target_reshape_info = {}
 
 
 class AtbGraphOpearation:
@@ -696,12 +752,31 @@ class AtbOverrides:
         op.set_output([name])
         return op
 
+    def Mul(name, x, y):
+        op = AtbSingleOperator(name, "ElewiseOperation")
+        param = infer_param.ElewiseParam()
+        param.elewiseType = infer_param.ElewiseType.ELEWISE_MUL
+
+        op.set_input([x, y])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
     def Graph(name, *args, **kwargs):
         outputs = kwargs['output']
-        
         if not isinstance(outputs, list):
             outputs = [outputs]
-        graph_output_names = [str(x) for x in outputs]
+
+        graph_output_names = []
+        for x in outputs:
+            if isinstance(x, torch.fx.node.Node) and isinstance(x.meta['val'], list):
+                meta_val = x.meta['val']
+                if len(meta_val) != 1:
+                    node_name = str(x)
+                    for i in range(len(meta_val)):
+                        graph_output_names.append(f"{node_name}_{i}")
+                    continue
+            graph_output_names.append(str(x))
 
         op = AtbGraphOpearation(name)
         op.set_node_names(list(args))
@@ -722,7 +797,7 @@ class AtbOverrides:
         
         op.set_input([x, w])
         op.set_param(param)
-        op.set_output([f"{name}_0"])
+        op.set_output([name])
         return op
     
     def Rope(name, query, key, cos, sin, seqlen):
@@ -799,4 +874,66 @@ class AtbOverrides:
         op.set_param(param)
         op.set_input([x1, x2, gamma])
         op.set_output([f"{name}_0", f"{name}_1", f"{name}_2"])
+        return op
+
+    def Transpose(name, x, perm):
+        op = AtbSingleOperator(name, "TransposeOperation")
+        param = infer_param.TransposeParam(perm)
+        # param.perm = perm
+        op.set_param(param)
+        op.set_input([x])
+        op.set_output([name])
+        return op
+
+    def View(name, input, size):
+        op = AtbViewOperation(name)
+        op.input_name = input
+        op.op_name = name
+        op.target_shape = size
+        op.target_reshape_info = {
+            "reshapeType": "view",
+            "dimNum": len(size),
+            "dims": size,
+        }
+        return op
+
+    def SplitSharing(name, x, size, dim):
+        op = AtbSingleOperator(name, "SplitOperation") 
+        param = infer_param.SplitParam()
+        param.splitDim = dim
+        param.splitNum = len(size)
+        op.set_param(param)
+        op.set_input([x])
+        if len(size) == 2:
+            op.set_output([f"{name}_0", f"{name}_1"])
+        else:
+            op.set_output([f"{name}_0", f"{name}_1", f"{name}_2"])
+        return op
+
+    def MlpGateV2(name, input, up, gate, down):
+        op = AtbSingleOperator(name, "MlpGateV2Operation")
+        param = infer_param.MlpGateParamV2()
+        param.activationType = infer_param.ActivationType.ACTIVATION_SWISH.value
+        param.transposeB = True
+        param.isBias = False
+        param.isPack = False
+        param.noGate = False
+        param.isQuant = False
+        param.isSparse = False
+        param.isBF16 = False
+        
+        op.set_param(param)
+        op.set_input([input, up, gate, down])
+        op.set_output([name])
+        return op
+
+    def Swish(name, x, scale=1.0, dim=-1):
+        op = AtbSingleOperator(name, "ActivationOperation")
+        param = infer_param.ActivationParam()
+        param.activationType = infer_param.ActivationType.ACTIVATION_SWISH.value
+        param.scale = scale
+        param.dim = dim
+        op.set_param(param)
+        op.set_input([x])
+        op.set_output([name])
         return op

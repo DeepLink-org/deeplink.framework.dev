@@ -18,6 +18,7 @@ class AtbModel():
             try:
                 o =  self.model.execute_out(inputs, outputs, param)
             except Exception as e:
+                print(e)
                 import pdb;pdb.set_trace()
                 pass
             return o

@@ -43,6 +43,13 @@ class Add(Operator):
     def infer_result(self, a, b):
         return a + b
 
+class Mul(Operator):
+    def __init__(self):
+        super().__init__("Mul")
+    
+    def infer_result(self, a, b):
+        return a * b
+
 class Graph(Operator):
     def __init__(self):
         super().__init__("Graph")
@@ -53,7 +60,15 @@ class Graph(Operator):
         else:
             res = [x.meta['val'] for x in kwargs['output']]
             return tuple(res)
- 
+
+class Tuple(Operator):
+    def __init__(self):
+        super().__init__("Tuple")
+    
+    def infer_result(self, *args, **kwargs):
+        res = [x.meta['val'] for x in args]
+        return tuple(res)
+
 
 class GetItem(Operator):
     def __init__(self):
@@ -118,3 +133,42 @@ class AddRmsNorm(Operator):
     
     def infer_result(self, x1, x2, gamma, epsilon):
         return x1, x1, x1
+
+
+class Transpose(Operator):
+    def __init__(self):
+        super().__init__("Transpose")
+    
+    def infer_result(self, x, perm):
+        return x.t()
+
+class View(Operator):
+    def __init__(self):
+        super().__init__("View")
+    
+    def infer_result(self, x, size):
+        return x.view(size)
+
+class SplitSharing(Operator):
+    def __init__(self):
+        super().__init__("SplitSharing")
+    
+    def infer_result(self, x, size, dim):
+        return x.split(size, dim=dim)
+
+
+class MlpGateV2(Operator):
+    def __init__(self):
+        super().__init__("MlpGateV2")
+
+    def infer_result(self, input, up, gate, down):
+        return input
+
+
+class Swish(Operator):
+    def __init__(self):
+        super().__init__("Swish")
+    
+    def infer_result(self, x, scale=1.0, dim=-1):
+        return x
+

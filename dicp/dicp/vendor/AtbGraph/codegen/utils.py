@@ -2,6 +2,8 @@ import enum
 import acl
 import torch
 
+from collections import OrderedDict
+
 
 @enum.unique
 class AclDataType(enum.Enum):
@@ -175,3 +177,7 @@ def get_cpp_dtype(dtype: torch.dtype) -> str:
         return "BOOL"
     else:
         raise RuntimeError(f"unknow torch data type ({dtype}) in get_cpp_dtype!")
+
+
+def remove_duplicates(lst):
+    return list(OrderedDict.fromkeys(lst))
