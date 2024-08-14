@@ -33,7 +33,11 @@ static void DIPURawDeviceAllocatorDeleter(void* ptr) {
 
 DIPURawDeviceAllocator::DIPURawDeviceAllocator() = default;
 
+#if DIPU_TORCH_VERSION >= 20300
+c10::DataPtr DIPURawDeviceAllocator::allocate(size_t size) {
+#else
 c10::DataPtr DIPURawDeviceAllocator::allocate(size_t size) const {
+#endif
   auto idx = devproxy::current_device();
   return this->allocate(size, idx);
 }
@@ -135,7 +139,11 @@ c10::DeleterFnPtr DIPURawHostAllocator::raw_deleter() const {
   return &DIPURawHostAllocatorDeleter;
 }
 
+#if DIPU_TORCH_VERSION >= 20300
+c10::DataPtr DIPURawHostAllocator::allocate(size_t size) {
+#else
 c10::DataPtr DIPURawHostAllocator::allocate(size_t size) const {
+#endif
   auto ptr_and_ctx = dipu_host_allocator.allocate(size);
   return {ptr_and_ctx.first, ptr_and_ctx.second, &DIPURawHostAllocatorDeleter,
           at::DeviceType::CPU};

@@ -32,9 +32,20 @@ class DIPU_API DIPURawDeviceAllocator : public c10::Allocator {
  public:
   DIPURawDeviceAllocator();
 
+#if DIPU_TORCH_VERSION >= 20300
+  c10::DataPtr allocate(size_t size) override;
+#else
   c10::DataPtr allocate(size_t size) const override;
+#endif
 
   c10::DeleterFnPtr raw_deleter() const override;
+
+#if DIPU_TORCH_VERSION >= 20300
+  void copy_data(void* dest, const void* src,
+                 std::size_t count) const override {
+    dipu::devapis::memCopyD2D(count, 0, dest, 0, src);
+  }
+#endif
 
  private:
   // TODO(allocator): refactor it someday.
@@ -45,8 +56,20 @@ class DIPU_API DIPURawDeviceAllocator : public c10::Allocator {
 
 class DIPURawHostAllocator : public c10::Allocator {
  public:
+#if DIPU_TORCH_VERSION >= 20300
+  c10::DataPtr allocate(size_t size) override;
+#else
   c10::DataPtr allocate(size_t size) const override;
+#endif
+
   c10::DeleterFnPtr raw_deleter() const override;
+
+#if DIPU_TORCH_VERSION >= 20300
+  void copy_data(void* dest, const void* src,
+                 std::size_t count) const override {
+    dipu::devapis::memCopyD2D(count, 0, dest, 0, src);
+  }
+#endif
 };
 
 DIPU_API bool isPinnedPtr(const void* ptr);

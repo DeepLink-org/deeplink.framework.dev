@@ -326,11 +326,22 @@ bool CachingHostAllocator_isPinnedPtr(const void* ptr) {
 }
 
 struct DIPUCachingHostAllocatorWrapper final : public at::Allocator {
+#if DIPU_TORCH_VERSION >= 20300
+  at::DataPtr allocate(size_t size) override {
+#else
   at::DataPtr allocate(size_t size) const override {
+#endif
     auto ptr_and_ctx = getDIPUCachingHostAllocator().allocate(size);
     return {ptr_and_ctx.first, ptr_and_ctx.second,
             &DIPUCachingHostAllocatorDeleter, at::DeviceType::CPU};
   }
+
+#if DIPU_TORCH_VERSION >= 20300
+  void copy_data(void* dest, const void* src,
+                 std::size_t count) const override {
+    dipu::devapis::memCopyD2D(count, 0, dest, 0, src);
+  }
+#endif
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

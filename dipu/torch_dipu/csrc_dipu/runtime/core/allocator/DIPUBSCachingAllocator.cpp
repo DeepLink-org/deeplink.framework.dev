@@ -73,7 +73,11 @@ class BSCachingAllocator : public CacheAllocator {
                               : getAllocateSizeMoreAdaptable(nbytes);
   }
 
+#if DIPU_TORCH_VERSION >= 20300
+  c10::DataPtr allocate(size_t size) override {
+#else
   c10::DataPtr allocate(size_t size) const override {
+#endif
     DIPU_DEBUG_ALLOCATOR(8, "BSCachingAllocator::allocate "
                                 << size << ",allocator:" << this
                                 << ", memory-usage" << memory_allocated() << "/"
@@ -126,6 +130,13 @@ class BSCachingAllocator : public CacheAllocator {
         c10::Device(c10::DeviceType::CUDA, device().index()));
     return data_ptr;
   }
+
+#if DIPU_TORCH_VERSION >= 20300
+  void copy_data(void* dest, const void* src,
+                 std::size_t count) const override {
+    dipu::devapis::memCopyD2D(count, 0, dest, 0, src);
+  }
+#endif
 
   void restore(size_t size, void* ptr) const {
     size_t nbytes = getAllocateSize(size);

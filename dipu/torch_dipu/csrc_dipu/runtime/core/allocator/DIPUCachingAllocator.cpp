@@ -321,13 +321,24 @@ class DIPUDeviceCachingProxy : public c10::Allocator {
 
   ~DIPUDeviceCachingProxy() override = default;
 
+#if DIPU_TORCH_VERSION >= 20300
+  c10::DataPtr allocate(size_t size) override {
+#else
   c10::DataPtr allocate(size_t size) const override {
+#endif
     return getAllocator(device_type_)->allocate(size);
   }
 
   c10::DeleterFnPtr raw_deleter() const override {
     return getAllocator(device_type_)->raw_deleter();
   }
+
+#if DIPU_TORCH_VERSION >= 20300
+  void copy_data(void* dest, const void* src,
+                 std::size_t count) const override {
+    dipu::devapis::memCopyD2D(count, 0, dest, 0, src);
+  }
+#endif
 };
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DIPUDeviceCachingProxy dipu_default_device_allocator(dipu::DIPU_DEVICE_TYPE);

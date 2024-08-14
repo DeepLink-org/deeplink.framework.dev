@@ -21,7 +21,7 @@ class DIPUCUDAAllocatorProxy : public CUDAAllocator {
   void* raw_alloc_with_stream(size_t nbytes, cudaStream_t stream) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
-  void setMemoryFraction(double fraction, int device) override {
+  void setMemoryFraction(double fraction, c10::DeviceIndex device) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
   void* getBaseAllocation(void* ptr, size_t* size) override {
@@ -30,13 +30,15 @@ class DIPUCUDAAllocatorProxy : public CUDAAllocator {
   void recordStream(const DataPtr& /*unused*/, CUDAStream stream) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
-  DeviceStats getDeviceStats(int device) override {
+  DeviceStats getDeviceStats(c10::DeviceIndex device) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
-  void resetAccumulatedStats(int device) override {
+  void resetAccumulatedStats(c10::DeviceIndex device) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
-  void resetPeakStats(int device) override { DIPU_PATCH_CUDA_ALLOCATOR(); }
+  void resetPeakStats(c10::DeviceIndex device) override {
+    DIPU_PATCH_CUDA_ALLOCATOR();
+  }
   SnapshotInfo snapshot() override { DIPU_PATCH_CUDA_ALLOCATOR(); }
 
   std::shared_ptr<void> getIpcDevPtr(std::string handle) override {
@@ -46,7 +48,7 @@ class DIPUCUDAAllocatorProxy : public CUDAAllocator {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
   std::string name() override { DIPU_PATCH_CUDA_ALLOCATOR(); }
-  void cacheInfo(int dev_id, size_t* largestBlock) override {
+  void cacheInfo(c10::DeviceIndex dev_id, size_t* largestBlock) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
 
@@ -69,7 +71,11 @@ class DIPUCUDAAllocatorProxy : public CUDAAllocator {
 
   void emptyCache() override { dipu::emptyCachedMem(); }
 
+#if DIPU_TORCH_VERSION >= 20300
+  DataPtr allocate(size_t n) override {
+#else
   DataPtr allocate(size_t n) const override {
+#endif
     // DIPU_PATCH_CUDA_ALLOCATOR();
     auto data_ptr = c10::GetAllocator(dipu::DIPU_DEVICE_TYPE)->allocate(n);
     data_ptr.unsafe_set_device(
@@ -101,7 +107,7 @@ class DIPUCUDAAllocatorProxy : public CUDAAllocator {
     return false;
   }
 
-#else  // # DIPU_TORCH20100 or higher
+#elif DIPU_TORCH_VERSION > 20100 && DIPU_TORCH_VERSION <= 20202
   void beginAllocateStreamToPool(int device, cudaStream_t stream,
                                  MempoolId_t mempool_id) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
@@ -109,17 +115,33 @@ class DIPUCUDAAllocatorProxy : public CUDAAllocator {
   void endAllocateStreamToPool(int device, cudaStream_t stream) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
+#else  // DIPU_TORCH_VERSION >= 20300
+  void beginAllocateToPool(c10::DeviceIndex device, MempoolId_t mempool_id,
+                           std::function<bool(cudaStream_t)> filter) override {
+  DIPU_PATCH_CUDA_ALLOCATOR();
+}
+void endAllocateToPool(c10::DeviceIndex device,
+                       MempoolId_t mempool_id) override {
+  DIPU_PATCH_CUDA_ALLOCATOR();
+}
+void copy_data(void* dest, const void* src, std::size_t count) const override {
+  default_copy_data(dest, src, count);
+}
+#endif
+
+#if DIPU_TORCH_VERSION > 20100
 
   void recordHistory(bool enabled, CreateContextFn context_recorder,
                      size_t alloc_trace_max_entries,
                      RecordContext when) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
-  void releasePool(int device, MempoolId_t mempool_id) override {
+  void releasePool(c10::DeviceIndex device, MempoolId_t mempool_id) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
 
-  void enablePeerAccess(int dev, int dev_to_access) override {
+  void enablePeerAccess(c10::DeviceIndex dev,
+                        c10::DeviceIndex dev_to_access) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
 
@@ -134,12 +156,12 @@ class DIPUCUDAAllocatorProxy : public CUDAAllocator {
                           bool p2p_enabled) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
-  std::shared_ptr<AllocatorState> getCheckpointState(int device,
+  std::shared_ptr<AllocatorState> getCheckpointState(c10::DeviceIndex device,
                                                      MempoolId_t id) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
   CheckpointDelta setCheckpointPoolState(
-      int device, std::shared_ptr<AllocatorState> pps) override {
+      c10::DeviceIndex device, std::shared_ptr<AllocatorState> pps) override {
     DIPU_PATCH_CUDA_ALLOCATOR();
   }
 #endif

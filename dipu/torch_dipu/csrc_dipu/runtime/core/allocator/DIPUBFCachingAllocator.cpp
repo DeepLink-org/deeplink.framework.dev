@@ -537,7 +537,11 @@ class BFCachingAllocator : public CacheAllocator {
 
   friend class Context;
 
+#if DIPU_TORCH_VERSION >= 20300
+  c10::DataPtr allocate(size_t size) override {
+#else
   c10::DataPtr allocate(size_t size) const override {
+#endif
     restore();
     if (async_mem_pool()->size() > kMaxAsyncResourcePoolLength) {
       try_empty_resource_pool();
@@ -577,6 +581,13 @@ class BFCachingAllocator : public CacheAllocator {
         c10::Device(c10::DeviceType::CUDA, device().index()));
     return data_ptr;
   }
+
+#if DIPU_TORCH_VERSION >= 20300
+  void copy_data(void* dest, const void* src,
+                 std::size_t count) const override {
+    dipu::devapis::memCopyD2D(count, 0, dest, 0, src);
+  }
+#endif
 
   void empty_cache() const override {
     DIPU_DEBUG_ALLOCATOR(8, "BFCachingAllocator: empty_cache, allocator:"

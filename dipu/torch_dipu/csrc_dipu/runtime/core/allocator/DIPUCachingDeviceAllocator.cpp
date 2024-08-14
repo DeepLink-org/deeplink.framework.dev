@@ -1955,7 +1955,11 @@ class NativeCachingAllocator : public DeviceAllocator {
     return result;
   }
 
+#if DIPU_TORCH_VERSION >= 20300
+  c10::DataPtr allocate(size_t size) override {
+#else
   c10::DataPtr allocate(size_t size) const override {
+#endif
     constexpr size_t one_exa_bytes = 1152921504606846976ULL;
     TORCH_CHECK_WITH(
         OutOfMemoryError, size < one_exa_bytes,
@@ -1974,6 +1978,13 @@ class NativeCachingAllocator : public DeviceAllocator {
             c10::Device(dipu::DIPU_DEVICE_TYPE,
                         static_cast<c10::DeviceIndex>(device))};
   }
+
+#if DIPU_TORCH_VERSION >= 20300
+  void copy_data(void* dest, const void* src,
+                 std::size_t count) const override {
+    dipu::devapis::memCopyD2D(count, 0, dest, 0, src);
+  }
+#endif
 
   c10::DeleterFnPtr raw_deleter() const override { return &local_raw_delete; }
 

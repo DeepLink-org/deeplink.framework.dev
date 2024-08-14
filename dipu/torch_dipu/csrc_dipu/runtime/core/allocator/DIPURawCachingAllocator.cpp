@@ -36,7 +36,11 @@ class RawCachingAllocator : public CacheAllocator {
     return getMemoryAlignmentStrategy()->roundBytes(nbytes);
   }
 
+#if DIPU_TORCH_VERSION >= 20300
+  c10::DataPtr allocate(size_t size) override {
+#else
   c10::DataPtr allocate(size_t size) const override {
+#endif
     size_t nbytes = getAllocateSize(size);
     empty_cache();
     DIPU_DEBUG_ALLOCATOR(4, "RawCachingAllocator: malloc "
@@ -64,6 +68,13 @@ class RawCachingAllocator : public CacheAllocator {
       }
     }
   }
+
+#if DIPU_TORCH_VERSION >= 20300
+  void copy_data(void* dest, const void* src,
+                 std::size_t count) const override {
+    dipu::devapis::memCopyD2D(count, 0, dest, 0, src);
+  }
+#endif
 
   void release_all_memory() const override {
     DIPU_DEBUG_ALLOCATOR(8, "RawCachingAllocator: release_all_memory");
