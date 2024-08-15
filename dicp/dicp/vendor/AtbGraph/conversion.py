@@ -130,19 +130,19 @@ class AtenToAtbTransformer(SingleOpTransformer):
         # if len(q_shape) == 3:
         #     query = self.get_proxy(atb_op.View, (query, [q_shape[0], q_shape]))
         rope = self.get_proxy(atb_op.Rope, (query, key, cos, sin, seqlen))
-        inplace_1 = self.get_proxy(atb_op.Inplace, (rope, query, 0))
-        inplace_2 = self.get_proxy(atb_op.Inplace, (rope, key, 1))
+        # inplace_1 = self.get_proxy(atb_op.Inplace, (rope, query, 0))
+        # inplace_2 = self.get_proxy(atb_op.Inplace, (rope, key, 1))
         return rope
 
     @register_conversion(torch.ops.atb.context_attention.default)
-    def context_attention(self, query, key, value, seqlen, mask):
-        q_head_num = query.node.meta['val'].shape[-2]
-        kv_head_num = key.node.meta['val'].shape[-2]
+    def context_attention(self, query, key, value, key_cache, value_cache, seqlen, mask, num_q_heads, num_kv_heads):
+        q_head_num = num_q_heads
+        kv_head_num = num_kv_heads
         out = self.get_proxy(atb_op.SelfAttentionPAEncoder, (query, key, value, seqlen, mask, q_head_num, kv_head_num))
-        inplace = self.get_proxy(atb_op.Inplace, (out, query))
+        # inplace = self.get_proxy(atb_op.Inplace, (out, query))
         return out
 
-    @register_conversion(torch.ops.atb.fill_kv_cache.default)
+    @register_conversion([torch.ops.atb.fill_kv_cache.default, torch.ops.infer_ext.fill_kv_cache.default])
     def fill_kv_cache(self, key, value, key_cache, value_cache, kv_indices):
         out = self.get_proxy(atb_op.ReshapeAndCache, (key, value, key_cache, value_cache, kv_indices))
         inplace_1 = self.get_proxy(atb_op.Inplace, (out, key_cache, 0))
@@ -150,12 +150,12 @@ class AtenToAtbTransformer(SingleOpTransformer):
         return out
 
     @register_conversion(torch.ops.atb.paged_attention_decode.default)
-    def paged_attention_decode(self, query, key_cache, value_cache, block_table, context_len, mask):
-        q_head_num = query.node.meta['val'].shape[-2]
-        kv_head_num = key_cache.node.meta['val'].shape[-2]
+    def paged_attention_decode(self, query, key_cache, value_cache, block_table, context_len, mask, num_q_heads, num_kv_heads):
+        q_head_num = num_q_heads
+        kv_head_num = num_kv_heads
         scale = 1. / math.sqrt(query.node.meta['val'].shape[-1])
         out = self.get_proxy(atb_op.PagedAttention, (query, key_cache, value_cache, block_table, context_len, mask, q_head_num, kv_head_num, scale))
-        inplace = self.get_proxy(atb_op.Inplace, (out, query))
+        # inplace = self.get_proxy(atb_op.Inplace, (out, query))
         return out
 
     @register_conversion(torch.ops.atb.add_rms_norm.default)
@@ -231,11 +231,36 @@ class AtenToAtbTransformer(SingleOpTransformer):
         out = self.get_proxy(atb_op.AddRmsNorm, (x1, x2, gamma, epsilon))
         y_out = self.get_proxy(atb_op.GetItem, (out, 0))
         x_out = self.get_proxy(atb_op.GetItem, (out, 2))
-        return self.get_proxy(atb_op.Tuple, (y_out, x_out))
+        return self.get_proxy(atb_op.Tuple, (x_out, y_out))
 
     @register_conversion(torch.ops.aten.sym_size)
     def symsize(self, x, dim):
         import pdb;pdb.set_trace()
         pass
 
+    @register_conversion(torch.ops.atb.lmdeploy_llama_context_attention.default)
+    def llama_context_attention(self, query,
+                                      key,
+                                      value,
+                                      k_cache,
+                                      v_cache,
+                                      kv_start_indices_1d,
+                                      kv_seqlens_int,
+                                      block_size,
+                                      num_heads,
+                                      num_kv_heads,
+                                      kv_head_size):
+        k_cache = self.get_proxy(atb_op.View, (k_cache, [-1, block_size, num_kv_heads, kv_head_size]))
+        v_cache = self.get_proxy(atb_op.View, (v_cache, [-1, block_size, num_kv_heads, kv_head_size]))
+        fill_kv_cache = self.get_proxy(atb_op.ReshapeAndCache, (key, value, k_cache, v_cache, kv_start_indices_1d))
+        getitem0 = self.get_proxy(atb_op.GetItem, (fill_kv_cache, 0))
+        getitem1 = self.get_proxy(atb_op.GetItem, (fill_kv_cache, 1))
+        inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
+        inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
+
+        out = self.get_proxy(atb_op.SelfAttentionPAEncoder, (query, key, value, kv_seqlens_int, None, num_heads, num_kv_heads))
+        inplace3 = self.get_proxy(atb_op.Inplace, (out, query))
+        tuple_op = self.get_proxy(atb_op.Tuple, (out, getitem0, getitem1))
+        graph = self.get_proxy(atb_op.Graph, (k_cache, v_cache, fill_kv_cache, inplace1, inplace2, out, inplace3), {"output": tuple_op})
+        return tuple_op
 

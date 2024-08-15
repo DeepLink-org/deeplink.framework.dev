@@ -75,7 +75,7 @@ class AtbCodegen(torch.fx.Interpreter):
         self.sym_in_args = {}
         
         # aten_graph.print_readable()
-        # graph.print_readable()
+        graph.print_readable()
 
         # for modified args return
         self.assign_args = []
@@ -96,6 +96,8 @@ class AtbCodegen(torch.fx.Interpreter):
         self.atb_inplace_replace_dict = {}
         self.atb_host_tensor_names = []
         self.atb_view_tensor_dict = {}
+        self.atb_tuple_nodes_list = []
+        self.atb_tuple_replace_dict = {}
 
         super().__init__(graph)
 
@@ -175,6 +177,8 @@ class AtbCodegen(torch.fx.Interpreter):
                 self.atb_inplace_nodes_list.append(op)
             if isinstance(op, AtbViewOperation):
                 self.atb_view_nodes_list.append(op)
+            if isinstance(op, AtbTupleOperation):
+                self.atb_tuple_nodes_list.append(op)
         else:
             import pdb;pdb.set_trace()
             pass
@@ -279,28 +283,27 @@ class AtbCodegen(torch.fx.Interpreter):
 
         output_tensor_descs = {}
         output_tensor_descs_for_create = {}
+        def get_shape(elem):
+            if hasattr(elem, 'meta'):
+                elem = elem.meta['val']
+            if isinstance(elem, torch.SymInt) or isinstance(elem, torch.SymBool):
+                return [1], 1
+            shape = list(elem.shape)
+            if len(shape) == 0:
+                raise RuntimeError("Error handling empty output_shape")
+            shape = [process_sym_name(dim) for dim in shape]
+            dim_num = len(shape)
+            return shape, dim_num
+        
+        def get_dtype(elem):
+            if hasattr(elem, 'meta'):
+                elem = elem.meta['val']
+            if isinstance(elem, torch.SymInt):
+                return AclDataType.ACL_INT32.value
+            if isinstance(elem, torch.SymBool):
+                return AclDataType.ACL_BOOL.value
+            return get_acl_dtype(elem.dtype)
         for output in self.output_args:
-            def get_shape(elem):
-                if hasattr(elem, 'meta'):
-                    elem = elem.meta['val']
-                if isinstance(elem, torch.SymInt) or isinstance(elem, torch.SymBool):
-                    return [1], 1
-                shape = list(elem.shape)
-                if len(shape) == 0:
-                    raise RuntimeError("Error handling empty output_shape")
-                shape = [process_sym_name(dim) for dim in shape]
-                dim_num = len(shape)
-                return shape, dim_num
-            
-            def get_dtype(elem):
-                if hasattr(elem, 'meta'):
-                    elem = elem.meta['val']
-                if isinstance(elem, torch.SymInt):
-                    return AclDataType.ACL_INT32.value
-                if isinstance(elem, torch.SymBool):
-                    return AclDataType.ACL_BOOL.value
-                return get_acl_dtype(elem.dtype)
-            
             dims, dim_num = get_shape(output)
             dims = f'[{",".join(dims)}]'
             dtype = get_dtype(output)
@@ -314,6 +317,56 @@ class AtbCodegen(torch.fx.Interpreter):
                 "dtype": str(get_torch_dtype(dtype)),
                 "shape": dims
             }
+        # inplace outputs
+        extra_inplace_output = {}
+        for output_name in self.atb_graph['outputNames']:
+            if output_name in output_tensor_descs.keys():
+                continue
+            target_name = self.atb_inplace_replace_dict[output_name]
+            view_node_list = []
+            while target_name in self.atb_view_tensor_dict.keys():
+                view_node_list.append(self.atb_view_tensor_dict[target_name])
+                target_name = self.atb_view_tensor_dict[target_name].input_name
+            self.atb_inplace_replace_dict[output_name] = target_name
+
+            input_node = None
+            for node in self.input_args:
+                if node.name == target_name:
+                    input_node = node
+                    break
+            if input_node is None:
+                import pdb;pdb.set_trace()
+                pass
+            assert input_node is not None
+            dims, dim_num = get_shape(input_node)
+            dims_prod = ' * '.join(dims)
+            for view_node in view_node_list:
+                target_shape = [str(x) for x in view_node.target_shape]
+                
+                if '-1' in target_shape:
+                    other_prod = []
+                    negtive_idx = -1
+                    for idx, elem in enumerate(target_shape):
+                        if elem != '-1':
+                            other_prod.append(elem)
+                        else:
+                            negtive_idx = idx
+                    other_prod = ' * '.join(other_prod)
+                    target_shape[negtive_idx] = f'({dims_prod}) // ({other_prod})'
+                dims = target_shape
+                dim_num = len(target_shape)
+            extra_inplace_output[output_name] = f'{",".join(dims)}'
+            dims = f'[{",".join(dims)}]'
+
+            dtype = get_dtype(input_node)
+            info = f''' {{"format": {AclFormat.ACL_FORMAT_ND.value}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims} }} '''
+            
+            output_tensor_descs[output_name] = info
+            output_tensor_descs_for_create[output_name] = {
+                "dtype": str(get_torch_dtype(dtype)),
+                "shape": dims
+            }
+            
         # gen fixed output shape
         call_body.writeline('''output_tensor_descs = {"outputTensorDescs": [], "hostTensors": []}''')
         graph_input_names = self.atb_graph["inputNames"]
@@ -330,9 +383,14 @@ class AtbCodegen(torch.fx.Interpreter):
                     import pdb;pdb.set_trace()
                     pass
                 device = 'npu'
-                call_body.writeline(f'''{output} = torch.empty({shape}, dtype={dtype}, device='{device}')''')
+                call_body.writeline(f'''{output} = torch.zeros({shape}, dtype={dtype}, device='{device}')''')
             else:
-                call_body.writeline(f'''{output} = {output_name}''')
+                if output in extra_inplace_output.keys():
+                    dims = extra_inplace_output[output]
+                    call_body.writeline(f'''{output} = {output_name}.view({dims})''')
+                else: 
+                    call_body.writeline(f'''{output} = {output_name}''')
+
         for tensor in self.atb_graph["hostTensorNames"]:
             node_id = tensor["nodeId"]
             tensor_id = tensor["tensorId"]
@@ -350,9 +408,9 @@ class AtbCodegen(torch.fx.Interpreter):
         call_body.writeline('kernel_cpp_0(inputs, outputs, output_shape)')
 
         py_output_names = self.preprocess_tensor_names(self.py_output_names)
-        del_args = [f'del {x}' for x in self.args if x not in py_output_names]
-        call_body.writelines(del_args)
-        call_body.writeline("args.clear()")
+        # del_args = [f'del {x}' for x in self.args if x not in py_output_names]
+        # call_body.writelines(del_args)
+        # call_body.writeline("args.clear()")
         call_body.writeline(f"return ({', '.join(py_output_names)})")
 
         call_func = IndentedBuffer()
@@ -447,6 +505,10 @@ class AtbCodegen(torch.fx.Interpreter):
         return name_list
 
     def process_atb_graph(self):
+        def process_tuple_operations():
+            for tuple_op in self.atb_tuple_nodes_list:
+                self.atb_tuple_replace_dict[tuple_op.op_name] = tuple_op
+                
         def process_view_operations():
             for view_node in self.atb_view_nodes_list:
                 while view_node.input_name in self.atb_view_tensor_dict.keys():
@@ -482,12 +544,19 @@ class AtbCodegen(torch.fx.Interpreter):
                 input_names, output_names = [], []    
                 graph_single_ops = {}
                 for single_op_name in graph_node.node_names:
+                    if single_op_name in self.atb_view_tensor_dict.keys():
+                        input_names.append(self.atb_view_tensor_dict[single_op_name].op_name)
+                        continue
                     if single_op_name in self.atb_getitem_replace_dict.keys():
                         input_names.append(self.atb_getitem_replace_dict[single_op_name])
                         continue
+                    if single_op_name not in self.atb_nodes.keys():
+                        continue
+                    
                     single_op = self.atb_nodes[single_op_name]
-                    graph_single_ops[single_op_name] = single_op
                     del self.atb_nodes[single_op.op_name]
+                    graph_single_ops[single_op_name] = single_op
+                    
 
                     # need reshape inputs
                     if any(name in self.atb_view_tensor_dict.keys() for name in single_op.input_names):
@@ -504,7 +573,7 @@ class AtbCodegen(torch.fx.Interpreter):
                         self.preprocess_tensor_names(single_op.input_names))
                     input_names = remove_duplicates(input_names)
                     output_names.extend(
-                        self.preprocess_tensor_names(single_op.output_names))
+                        self.replace_inplace_name(self.preprocess_tensor_names(single_op.output_names)))
                     graph_node.nodes.append(single_op.build())
                 # internal_names = output_names - graph_node.output_names
                 graph_node.output_names = self.preprocess_tensor_names(
@@ -550,8 +619,16 @@ class AtbCodegen(torch.fx.Interpreter):
                     if name not in input_output_names:
                         input_output_names.append(name)
                 self.atb_graph["nodes"].append(v)
-            self.atb_graph["internalNames"] = [
-                tensor for tensor in input_output_names if tensor not in self.atb_graph["inputNames"] and tensor not in self.atb_graph["outputNames"]]
+            self.atb_graph['internalNames'] = []
+            for tensor_name in input_output_names:
+                if tensor_name in self.atb_graph["inputNames"] or tensor_name in self.atb_graph["outputNames"]:
+                    continue
+                if tensor_name in self.atb_inplace_replace_dict.keys():
+                    self.atb_graph['outputNames'].append(tensor_name)
+                    continue
+                self.atb_graph['internalNames'].append(tensor_name)
+            # self.atb_graph["internalNames"] = [
+            #     tensor for tensor in input_output_names if tensor not in self.atb_graph["inputNames"] and tensor not in self.atb_graph["outputNames"]]
 
         def generate_host_tensor_names():
             graph_host_names = []
@@ -563,6 +640,7 @@ class AtbCodegen(torch.fx.Interpreter):
             self.atb_graph["hostTensorNames"] = graph_host_names
 
         extend_host_tensor_names()
+        process_tuple_operations()
         process_getitem_operations()
         process_inplace_operations()
         process_view_operations()
@@ -644,7 +722,7 @@ class AtbTupleOperation:
     def __init__(self, name: str):
         self.op_name = name
         self.op_type = "tupleOperation"
-        self.target_name = ""
+        self.target_names = ""
 
 
 class AtbViewOperation:
@@ -822,9 +900,12 @@ class AtbOverrides:
         param = infer_param.SelfAttentionParam()
         param.calcType = infer_param.SelfAttentionCalcType.PA_ENCODER
         param.kernelType = infer_param.SelfAttentionKernelType.KERNELTYPE_DEFAULT
+        # param.kernelType = infer_param.SelfAttentionKernelType.KERNELTYPE_HIGH_PRECISION
         param.clampType = infer_param.SelfAttentionClampType.CLAMP_TYPE_UNDEFINED
         param.headNum = q_head_num
         param.kvHeadNum = kv_head_num
+        param.qkScale = 1. / math.sqrt(128)
+        param.isTriuMask = 1
 
         if mask is not None:
             param.maskType = infer_param.SelfAttentionMaskType.MASK_TYPE_NORM
@@ -936,4 +1017,10 @@ class AtbOverrides:
         op.set_param(param)
         op.set_input([x])
         op.set_output([name])
+        return op
+
+
+    def Tuple(name, *args, **kwargs):
+        op = AtbTupleOperation(name)
+        op.target_names = list(args)
         return op

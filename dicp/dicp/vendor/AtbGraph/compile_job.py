@@ -27,9 +27,9 @@ class AtbCompileJob(DeviceCompileJob):
     def _compile(self):
         try:
             if not hasattr(torch.classes.ModelTorch, "ModelTorch"):
-                torch.classes.load_library('/tzy/dicp_atb_new/output/atb_speed/lib/libatb_speed_torch.so')
+                torch.classes.load_library('/tzy/AscendATB/output/atb_speed/lib/libatb_speed_torch.so')
         except Exception as e:
-            torch.classes.load_library('/tzy/dicp_atb_new/output/atb_speed/lib/libatb_speed_torch.so')
+            torch.classes.load_library('/tzy/AscendATB/output/atb_speed/lib/libatb_speed_torch.so')
 
     def get_key(self):
         return self._key
