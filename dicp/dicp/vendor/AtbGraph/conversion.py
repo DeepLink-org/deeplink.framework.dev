@@ -139,7 +139,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         q_head_num = num_q_heads
         kv_head_num = num_kv_heads
         out = self.get_proxy(atb_op.SelfAttentionPAEncoder, (query, key, value, seqlen, mask, q_head_num, kv_head_num))
-        # inplace = self.get_proxy(atb_op.Inplace, (out, query))
+        inplace = self.get_proxy(atb_op.Inplace, (out, query))
         return out
 
     @register_conversion([torch.ops.atb.fill_kv_cache.default, torch.ops.infer_ext.fill_kv_cache.default])
@@ -155,7 +155,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         kv_head_num = num_kv_heads
         scale = 1. / math.sqrt(query.node.meta['val'].shape[-1])
         out = self.get_proxy(atb_op.PagedAttention, (query, key_cache, value_cache, block_table, context_len, mask, q_head_num, kv_head_num, scale))
-        # inplace = self.get_proxy(atb_op.Inplace, (out, query))
+        inplace = self.get_proxy(atb_op.Inplace, (out, query))
         return out
 
     @register_conversion(torch.ops.atb.add_rms_norm.default)
