@@ -210,6 +210,58 @@ def get_input_data_node(node_list, node_name):
             return node
     return None
 
+def make_output_tensor_desc(output_names,
+                            output_data_nodes,
+                            input_data_nodes,
+                            graph_outputs,
+                            inplace_tensor_dict,
+                            inplace_tensor_with_shape_dict):
+    output_tensor_descs = {'param': {}, 'create': {}}
+
+    def process_node(output_name, node, input_name=None, need_reshape=False):
+        dims, dim_num = get_shape(node)
+        dims_prod = ' * '.join(dims)
+        if node.name in inplace_tensor_with_shape_dict:
+            target_shape = [str(x) for x in inplace_tensor_with_shape_dict[node.name]]
+            if '-1' in target_shape:
+                other_prod = ' * '.join(x for x in target_shape if x != '-1')
+                negtive_idx = target_shape.index('-1')
+                target_shape[negtive_idx] = f'({dims_prod}) // ({other_prod})'
+            dims = target_shape
+            dim_num = len(target_shape)
+            need_reshape = True
+        dims_str = f'[{",".join(dims)}]'
+        dtype = get_dtype(node)
+        info = f''' {{"format": {AclFormat.ACL_FORMAT_ND.value}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims_str} }} '''
+        
+        output_tensor_descs['param'][output_name] = info
+        output_tensor_descs['create'][output_name] = {
+            "dtype": str(get_torch_dtype(dtype)),
+            "shape": dims_str,
+            "input": input_name,
+            "need_reshape": need_reshape,
+        }
+
+    for idx, output in enumerate(output_data_nodes):
+        output_name = output_names[idx]
+        if output_name in inplace_tensor_dict:
+            input_name = inplace_tensor_dict[output_name]
+            input_node = get_input_data_node(input_data_nodes, input_name)
+            assert input_node is not None
+            process_node(output_name, input_node, input_name)
+        else:
+            process_node(output_name, output)
+
+    for output in graph_outputs:
+        if output not in output_names:
+            input_name = inplace_tensor_dict[output]
+            input_node = get_input_data_node(input_data_nodes, input_name)
+            assert input_node is not None
+            process_node(output, input_node, input_name)
+
+    return output_tensor_descs
+    
+
 def parse_graph(graph,
                 input_names,
                 output_names,
@@ -333,6 +385,8 @@ def parse_graph(graph,
         graph_outputs = list(set(graph_outputs))
         graph_internals = list(set(graph_internals))
         graph_hosts = list(set(graph_hosts))
+        
+        # import pdb;pdb.set_trace()
 
         graph_inputs = [x for x in graph_inputs if x not in graph_outputs]
         graph_internals = [x for x in graph_outputs if x not in graph_inputs and x not in graph_node.outputs]
@@ -376,9 +430,12 @@ def parse_graph(graph,
         for ti, t_name in enumerate(node.inputs):
             if t_name in host_tensors and node.has_host_inputs:
                 node_hosts.append({"nodeId": node_count, "tensorId": ti, "tensorName": t_name})
-            elif t_name in node_inputs_count.keys():
+            # elif t_name in node_inputs_count.keys():
+            #     node_inputs_count[t_name] = node_inputs_count[t_name] + 1
+            if t_name in node_inputs_count.keys():
                 node_inputs_count[t_name] = node_inputs_count[t_name] + 1
         node_count = node_count + 1
+    # import pdb;pdb.set_trace()
     for tensor, count in node_inputs_count.items():
         if count > 0:
             node_inputs.append(tensor)
@@ -386,14 +443,14 @@ def parse_graph(graph,
     node_outputs = copy.deepcopy(output_names)
     node_internals = []
     for k, v in inplace_tensor_to_real_tensor.items():
-        if v in node_inputs:
+        if v in node_inputs and k not in node_outputs:
             node_outputs.append(k)
     for tensor in all_tensors:
         if tensor not in node_inputs and tensor not in node_outputs:
             node_internals.append(tensor)
-    print('node_inputs:', node_inputs)
-    print('node_outputs:', node_outputs)
-    print('node_internals:', node_internals)
+    # print('node_inputs:', node_inputs)
+    # print('node_outputs:', node_outputs)
+    # print('node_internals:', node_internals)
     
     graph.set_inputs(node_inputs)
     graph.set_outputs(node_outputs)
@@ -402,59 +459,13 @@ def parse_graph(graph,
     for name in graph.nodes.keys():
         graph.nodes[name] = graph.nodes[name].build()
 
-    output_tensor_descs = {'param': {}, 'create': {}}
-    # prepare output tensors
-    for output in output_data_nodes:
-        dims, dim_num = get_shape(output)
-        dims = f'[{",".join(dims)}]'
-        dtype = get_dtype(output)
-        info = f''' {{"format": {AclFormat.ACL_FORMAT_ND.value}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims} }} '''
-        output_name = output.name
-        output_tensor_descs['param'][output_name] = info
-        output_tensor_descs['create'][output_name] = {
-            "dtype": str(get_torch_dtype(dtype)),
-            "shape": dims,
-            "input": None,
-            "need_reshape": False,
-        }
-    for output in node_outputs:
-        if output in output_names:
-            continue
-        input_name = inplace_tensor_to_real_tensor[output]
-        input_node = get_input_data_node(input_data_nodes, input_name)
+    output_tensor_descs = make_output_tensor_desc(output_names,
+                                                  output_data_nodes,
+                                                  input_data_nodes,
+                                                  node_outputs,
+                                                  inplace_tensor_to_real_tensor,
+                                                  inplace_tensor_with_reshape)
 
-        assert input_node is not None
-        dims, dim_num = get_shape(input_node)
-        dims_prod = ' * '.join(dims)
-        need_reshape = False
-        if input_node.name in inplace_tensor_with_reshape.keys():
-            target_shape = [str(x) for x in inplace_tensor_with_reshape[input_node.name]]
-            if '-1' in target_shape:
-                other_prod = []
-                negtive_idx = -1
-                for idx, elem in enumerate(target_shape):
-                    if elem != '-1':
-                        other_prod.append(elem)
-                    else:
-                        negtive_idx = idx
-                other_prod = ' * '.join(other_prod)
-                target_shape[negtive_idx] = f'({dims_prod}) // ({other_prod})'
-            dims = target_shape
-            dim_num = len(target_shape)
-            need_reshape = True
-        dims = f'[{",".join(dims)}]'
-        dtype = get_dtype(input_node)
-        info = f''' {{"format": {AclFormat.ACL_FORMAT_ND.value}, "dtype": {dtype}, "dimNum": {dim_num}, "dims": {dims} }} '''
-        
-        output_tensor_descs['param'][output] = info
-        output_tensor_descs['create'][output] = {
-            "dtype": str(get_torch_dtype(dtype)),
-            "shape": dims,
-            "input": input_name,
-            "need_reshape": need_reshape,
-        }
-            
-    
     # print()
     # for name, node in graph.nodes.items():
     #     print('node_name: ', name)
@@ -470,4 +481,5 @@ def parse_graph(graph,
     # pass
 
     return graph, output_tensor_descs, py_output_names
+
 

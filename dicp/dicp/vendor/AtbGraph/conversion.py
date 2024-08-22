@@ -238,29 +238,54 @@ class AtenToAtbTransformer(SingleOpTransformer):
         import pdb;pdb.set_trace()
         pass
 
-    @register_conversion(torch.ops.atb.lmdeploy_llama_context_attention.default)
-    def llama_context_attention(self, query,
+    @register_conversion(torch.ops.atb.atb_context_attention.default)
+    def atb_context_attention(self, query,
                                       key,
                                       value,
                                       k_cache,
                                       v_cache,
                                       kv_start_indices_1d,
                                       kv_seqlens_int,
-                                      block_size,
+                                      mask,
                                       num_heads,
                                       num_kv_heads,
-                                      kv_head_size):
+                                      kv_head_size,
+                                      block_size):
         k_cache = self.get_proxy(atb_op.View, (k_cache, [-1, block_size, num_kv_heads, kv_head_size]))
         v_cache = self.get_proxy(atb_op.View, (v_cache, [-1, block_size, num_kv_heads, kv_head_size]))
         fill_kv_cache = self.get_proxy(atb_op.ReshapeAndCache, (key, value, k_cache, v_cache, kv_start_indices_1d))
-        getitem0 = self.get_proxy(atb_op.GetItem, (fill_kv_cache, 0))
-        getitem1 = self.get_proxy(atb_op.GetItem, (fill_kv_cache, 1))
         inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
         inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
+        
+        query = self.get_proxy(atb_op.View, (query, [-1, num_heads * kv_head_size]))
+        key = self.get_proxy(atb_op.View, (key, [-1, num_heads * kv_head_size]))
+        value = self.get_proxy(atb_op.View, (value, [-1, num_heads * kv_head_size]))
 
-        out = self.get_proxy(atb_op.SelfAttentionPAEncoder, (query, key, value, kv_seqlens_int, None, num_heads, num_kv_heads))
-        inplace3 = self.get_proxy(atb_op.Inplace, (out, query))
-        tuple_op = self.get_proxy(atb_op.Tuple, (out, getitem0, getitem1))
-        graph = self.get_proxy(atb_op.Graph, (k_cache, v_cache, fill_kv_cache, inplace1, inplace2, out, inplace3), {"output": tuple_op})
-        return tuple_op
+        out = self.get_proxy(atb_op.SelfAttentionPAEncoder, (query, key, value, kv_seqlens_int, mask, num_heads, num_kv_heads))
+        graph = self.get_proxy(atb_op.Graph, (fill_kv_cache, out), {"output": [out, inplace1, inplace2]})
+        return out
 
+    @register_conversion(torch.ops.atb.atb_paged_attention.default)
+    def atb_paged_attention(self, query,
+                                      key,
+                                      value,
+                                      k_cache,
+                                      v_cache,
+                                      kv_start_indices_1d,
+                                      kv_seqlens_int,
+                                      mask,
+                                      block_offset,
+                                      num_heads,
+                                      num_kv_heads,
+                                      kv_head_size,
+                                      block_size):
+        k_cache = self.get_proxy(atb_op.View, (k_cache, [-1, block_size, num_kv_heads, kv_head_size]))
+        v_cache = self.get_proxy(atb_op.View, (v_cache, [-1, block_size, num_kv_heads, kv_head_size]))
+        fill_kv_cache = self.get_proxy(atb_op.ReshapeAndCache, (key, value, k_cache, v_cache, kv_start_indices_1d))
+        inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
+        inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
+        
+        scale = 1. / math.sqrt(kv_head_size)
+        out = self.get_proxy(atb_op.PagedAttention, (query, k_cache, v_cache, block_offset, kv_seqlens_int, mask, num_heads, num_kv_heads, scale))
+        graph = self.get_proxy(atb_op.Graph, (fill_kv_cache, out), {"output": [out, inplace1, inplace2]})
+        return out

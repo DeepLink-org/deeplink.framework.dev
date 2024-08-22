@@ -79,8 +79,8 @@ def symint_in_inputs(nodes):
 def atbgraph_opset_convert(
     gm: torch.fx.GraphModule,
 ):
-    # gm.print_readable()
-    # import pdb;pdb.set_trace()
+    gm.print_readable()
+    import pdb;pdb.set_trace()
     gm = AtenToAtbTransformer(gm).transform()
 
     # For bug in pytorch

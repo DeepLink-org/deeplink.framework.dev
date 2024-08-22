@@ -178,91 +178,97 @@ def mlp_gate_impl(input, gate_up, down):
     return input
 
 
-@torch._custom_op.impl.custom_op('atb::lmdeploy_llama_context_attention')
-def lmdeploy_llama_context_attention(query: Tensor,
-                                     key: Tensor,
-                                     value: Tensor,
-                                     k_cache: Tensor,
-                                     v_cache: Tensor,
-                                     kv_start_indices_1d: Tensor,
-                                     kv_seqlens_int: Tensor,
-                                     block_size: int,
-                                     num_heads: int,
-                                     num_kv_heads: int,
-                                     kv_head_size: int) -> tuple[Tensor, Tensor, Tensor]:
+@torch._custom_op.impl.custom_op('atb::atb_context_attention')
+def atb_context_attention(query: Tensor,
+                          key: Tensor,
+                          value: Tensor,
+                          k_cache: Tensor,
+                          v_cache: Tensor,
+                          kv_start_indices_1d: Tensor,
+                          kv_seqlens_int: Tensor,
+                          mask: Tensor,
+                          num_heads: int,
+                          num_kv_heads: int,
+                          kv_head_size: int,
+                          block_size: int) -> Tensor:
     ...
 
-@lmdeploy_llama_context_attention.impl_abstract()
-def lmdeploy_llama_context_attention_abstract(query: Tensor,
-                                     key: Tensor,
-                                     value: Tensor,
-                                     k_cache: Tensor,
-                                     v_cache: Tensor,
-                                     kv_start_indices_1d: Tensor,
-                                     kv_seqlens_int: Tensor,
-                                     block_size: int,
-                                     num_heads: int,
-                                     num_kv_heads: int,
-                                     kv_head_size: int):
-    return query, k_cache, v_cache
+@atb_context_attention.impl_abstract()
+def atb_context_attention_abstract(query: Tensor,
+                                   key: Tensor,
+                                   value: Tensor,
+                                   k_cache: Tensor,
+                                   v_cache: Tensor,
+                                   kv_start_indices_1d: Tensor,
+                                   kv_seqlens_int: Tensor,
+                                   mask: Tensor,
+                                   num_heads: int,
+                                   num_kv_heads: int,
+                                   kv_head_size: int,
+                                   block_size: int):
+    return query
 
-@lmdeploy_llama_context_attention.impl(['cpu', 'cuda'])
-def lmdeploy_llama_context_attention_impl(query: Tensor,
-                                     key: Tensor,
-                                     value: Tensor,
-                                     k_cache: Tensor,
-                                     v_cache: Tensor,
-                                     kv_start_indices_1d: Tensor,
-                                     kv_seqlens_int: Tensor,
-                                     block_size: int,
-                                     num_heads: int,
-                                     num_kv_heads: int,
-                                     kv_head_size: int):
-    return query, k_cache, v_cache
+@atb_context_attention.impl(['cpu', 'cuda'])
+def atb_context_attention_impl(query: Tensor,
+                               key: Tensor,
+                               value: Tensor,
+                               k_cache: Tensor,
+                               v_cache: Tensor,
+                               kv_start_indices_1d: Tensor,
+                               kv_seqlens_int: Tensor,
+                               mask: Tensor,
+                               num_heads: int,
+                               num_kv_heads: int,
+                               kv_head_size: int,
+                               block_size: int):
+    return query
 
 
 
-@torch._custom_op.impl.custom_op('atb::lmdeploy_llama_paged_attention')
-def lmdeploy_llama_paged_attention(query: Tensor,
-                                     key: Tensor,
-                                     value: Tensor,
-                                     k_cache: Tensor,
-                                     v_cache: Tensor,
-                                     kv_start_indices_1d: Tensor,
-                                     block_offsets_int: Tensor,
-                                     kv_seqlens_int: Tensor,
-                                     block_size: int,
-                                     num_heads: int,
-                                     num_kv_heads: int,
-                                     kv_head_size: int) -> tuple[Tensor, Tensor, Tensor]:
+@torch._custom_op.impl.custom_op('atb::atb_paged_attention')
+def atb_paged_attention(query: Tensor,
+                          key: Tensor,
+                          value: Tensor,
+                          k_cache: Tensor,
+                          v_cache: Tensor,
+                          kv_start_indices_1d: Tensor,
+                          kv_seqlens_int: Tensor,
+                          mask: Tensor,
+                          block_offset: Tensor,
+                          num_heads: int,
+                          num_kv_heads: int,
+                          kv_head_size: int,
+                          block_size: int) -> Tensor:
     ...
 
-@lmdeploy_llama_paged_attention.impl_abstract()
-def lmdeploy_llama_paged_attention_abstract(query: Tensor,
-                                     key: Tensor,
-                                     value: Tensor,
-                                     k_cache: Tensor,
-                                     v_cache: Tensor,
-                                     kv_start_indices_1d: Tensor,
-                                     block_offsets_int: Tensor,
-                                     kv_seqlens_int: Tensor,
-                                     block_size: int,
-                                     num_heads: int,
-                                     num_kv_heads: int,
-                                     kv_head_size: int):
-    return query, k_cache, v_cache
+@atb_paged_attention.impl_abstract()
+def atb_paged_attention_abstract(query: Tensor,
+                                   key: Tensor,
+                                   value: Tensor,
+                                   k_cache: Tensor,
+                                   v_cache: Tensor,
+                                   kv_start_indices_1d: Tensor,
+                                   kv_seqlens_int: Tensor,
+                                   mask: Tensor,
+                                   block_offset: Tensor,
+                                   num_heads: int,
+                                   num_kv_heads: int,
+                                   kv_head_size: int,
+                                   block_size: int):
+    return query
 
-@lmdeploy_llama_paged_attention.impl(['cpu', 'cuda'])
-def lmdeploy_llama_paged_attention_impl(query: Tensor,
-                                     key: Tensor,
-                                     value: Tensor,
-                                     k_cache: Tensor,
-                                     v_cache: Tensor,
-                                     kv_start_indices_1d: Tensor,
-                                     block_offsets_int: Tensor,
-                                     kv_seqlens_int: Tensor,
-                                     block_size: int,
-                                     num_heads: int,
-                                     num_kv_heads: int,
-                                     kv_head_size: int):
-    return query, k_cache, v_cache
+@atb_paged_attention.impl(['cpu', 'cuda'])
+def atb_paged_attention_impl(query: Tensor,
+                               key: Tensor,
+                               value: Tensor,
+                               k_cache: Tensor,
+                               v_cache: Tensor,
+                               kv_start_indices_1d: Tensor,
+                               kv_seqlens_int: Tensor,
+                               mask: Tensor,
+                               block_offset: Tensor,
+                               num_heads: int,
+                               num_kv_heads: int,
+                               kv_head_size: int,
+                               block_size: int):
+    return query
