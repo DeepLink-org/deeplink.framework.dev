@@ -89,7 +89,7 @@ class InplaceOperation(Operation):
         self.target = None
 
 
-class AtbTupleOperation(Operation):
+class TupleOperation(Operation):
     def __init__(self, name: str):
         super().__init__(name, "tupleOperation")
 
@@ -112,6 +112,8 @@ class GraphOpearation(Operation):
         self.node_names = []
         self.has_host_inputs = False
         self.host_inputs = []
+        self.has_infer_shape = False
+        self.infer_shape = ''
     
     def set_node_names(self, x):
         self.node_names = x
@@ -154,6 +156,8 @@ class GraphOpearation(Operation):
             "nodeSize": len(self.nodes),
             "hasHostInputs": self.has_host_inputs,
             "hostInputNames": self.host_inputs,
+            "hasInferShape": self.has_infer_shape,
+            "inferShape": self.infer_shape,
             }
         }
         return graph
@@ -298,12 +302,26 @@ def parse_graph(graph,
                 if output in inplace_replace.keys():
                     node.outputs[idx] = inplace_replace[output]
 
+    # get tuple repalce
+    tuple_replace = {}
+    for name in list(graph.nodes.keys()):
+        node = graph.nodes[name]
+        if node.op_type == "tupleOperation":
+            op_name = node.op_name
+            for idx, input in enumerate(node.inputs):
+                key_name = f'{op_name}_{idx}'
+                tuple_replace[key_name] = input
+            del graph.nodes[name]
+
     # get item replace
     getitem_replace = {}
     for name in list(graph.nodes.keys()):
         node = graph.nodes[name]
         if node.op_type == "getitemOperation":
-            getitem_replace[node.outputs[0]] = f'{node.inputs[0]}_{node.index}'
+            real_name = f'{node.inputs[0]}_{node.index}'
+            if real_name in tuple_replace.keys():
+                real_name = tuple_replace[real_name]
+            getitem_replace[node.outputs[0]] = real_name
             del graph.nodes[name]
     for name in graph.nodes.keys():
         node = graph.nodes[name]
@@ -385,13 +403,24 @@ def parse_graph(graph,
         graph_outputs = list(set(graph_outputs))
         graph_internals = list(set(graph_internals))
         graph_hosts = list(set(graph_hosts))
-        
-        # import pdb;pdb.set_trace()
 
         graph_inputs = [x for x in graph_inputs if x not in graph_outputs]
+        for k, v in inplace_tensor_to_real_tensor.items():
+            if v in graph_inputs and k not in graph_node.outputs:
+                graph_node.outputs.append(k)
         graph_internals = [x for x in graph_outputs if x not in graph_inputs and x not in graph_node.outputs]
+
         graph_node.set_inputs(graph_inputs)
         graph_node.set_internals(graph_internals)
+        graph_node.node_names = list(graph_node.nodes.keys())
+        if graph_node.has_infer_shape:
+            infer_shape = []
+            for item in graph_node.infer_shape["value"]:
+                node_id, tensor_id = item
+                node_name = graph_node.node_names[node_id]
+                input_name = graph_node.nodes[node_name].inputs[tensor_id]
+                infer_shape.append(graph_node.inputs.index(input_name))
+            graph_node.infer_shape = {'type': 'equal', 'value': infer_shape}
         if len(graph_hosts) > 0:
             graph_node.has_host_inputs = True
             graph_node.host_inputs = graph_hosts

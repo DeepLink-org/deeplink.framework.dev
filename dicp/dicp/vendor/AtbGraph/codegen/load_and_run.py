@@ -6,12 +6,12 @@ import numpy as np
 import torch
 from torch.profiler import record_function
 
-
 class AtbModel():
     def __init__(self, model_path) -> None:
         self.model = torch.classes.ModelTorch.ModelTorch("dicp_DICPCustomModel")
         self.model.set_param(model_path)
 
+    @record_function("load_and_run")
     def run(self, inputs, outputs, param):
         # inputs = [x.npu() for x in inputs]
         if len(outputs) > 0:

@@ -1,10 +1,11 @@
 import math
+import json
 import torch
 from torch.fx.node import Node
 from torch.utils._pytree import tree_map_only
 from torch._inductor.utils import IndentedBuffer
 import dicp.vendor.AtbGraph.codegen.atb_infer_param as infer_param
-from dicp.vendor.AtbGraph.codegen.atb_graph import Operation, GetItemOperation, GraphOpearation, InplaceOperation, ViewOperation
+from dicp.vendor.AtbGraph.codegen.atb_graph import Operation, GetItemOperation, GraphOpearation, InplaceOperation, ViewOperation, TupleOperation
 
 class AtbOverrides:
     @staticmethod
@@ -59,6 +60,10 @@ class AtbOverrides:
         if not isinstance(outputs, list):
             outputs = [outputs]
 
+        infer_shape = None
+        if 'infer_shape' in kwargs.keys():
+            infer_shape = kwargs['infer_shape']
+
         graph_output_names = []
         for x in outputs:
             if isinstance(x, torch.fx.node.Node) and isinstance(x.meta['val'], list):
@@ -73,6 +78,9 @@ class AtbOverrides:
         op = GraphOpearation(name)
         op.set_node_names(list(args))
         op.set_output(graph_output_names)
+        if infer_shape:
+            op.has_infer_shape = True
+            op.infer_shape = infer_shape
         return op
 
     def GetItem(name, x, index):
@@ -193,6 +201,12 @@ class AtbOverrides:
             "dimNum": len(size),
             "dims": size,
         }
+        return op
+    
+    def Tuple(name, *args, **kwargs):
+        op = TupleOperation(name)
+        op.set_input(list(args))
+        op.set_output([name])
         return op
 
     def SplitSharing(name, x, size, dim):

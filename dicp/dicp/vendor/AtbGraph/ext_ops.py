@@ -121,17 +121,17 @@ def paged_attention_decode_impl(query, key_cache, value_cache, block_table, cont
     return query
 
 @torch._custom_op.impl.custom_op('atb::add_rms_norm')
-def add_rms_norm(x1: Tensor, x2: Tensor, gamma: Tensor, epsilon: float) -> tuple[Tensor, Tensor, Tensor]:
+def add_rms_norm(x1: Tensor, x2: Tensor, gamma: Tensor, epsilon: float) -> tuple[Tensor, Tensor]:
     ...
 
 @add_rms_norm.impl_abstract()
 def add_rms_norm_abstract(x1, x2, gamma, epsilon):
-    return x1 + x2, x1 + x2, x1 + x2
+    return x1 + x2, x1 + x2
 
 
 @add_rms_norm.impl(['cpu', 'cuda'])
 def add_rms_norm_impl(x1, x2, gamma, epsilon):
-    return x1 + x2, x1 + x2, x1 + x2
+    return x1 + x2, x1 + x2
 
 
 @torch._custom_op.impl.custom_op('atb::mlp_gate_v2')
@@ -272,3 +272,383 @@ def atb_paged_attention_impl(query: Tensor,
                                kv_head_size: int,
                                block_size: int):
     return query
+
+@torch._custom_op.impl.custom_op('atb::add_and_rms_norm')
+def add_and_rms_norm(x1: Tensor, x2: Tensor, gamma: Tensor, epsilon: float) -> Tensor:
+    ...
+
+@add_and_rms_norm.impl_abstract()
+def add_and_rms_norm_abstract(x1, x2, gamma, epsilon):
+    return x1 + x2
+
+
+@add_and_rms_norm.impl(['cpu', 'cuda'])
+def add_and_rms_norm_impl(x1, x2, gamma, epsilon):
+    return x1 + x2
+
+
+@torch._custom_op.impl.custom_op('atb::view_and_rope')
+def view_and_rope(query: Tensor, key: Tensor, cos: Tensor, sin: Tensor, seqlen: Tensor, view_size: int) -> tuple[Tensor, Tensor]:
+    ...
+
+@view_and_rope.impl_abstract()
+def view_and_rope_abstract(query: Tensor, key: Tensor, cos: Tensor, sin: Tensor, seqlen: Tensor, view_size: int) -> tuple[Tensor, Tensor]:
+    query = torch.ops.aten.view.default(query, [-1, view_size])
+    return query
+
+
+@view_and_rope.impl(['cpu', 'cuda'])
+def view_and_rope_impl(query: Tensor, key: Tensor, cos: Tensor, sin: Tensor, seqlen: Tensor, view_size: int) -> tuple[Tensor, Tensor]:
+    query = torch.ops.aten.view.default(query, [-1, view_size])
+    return query
+
+
+# context attention
+# view
+# linear
+@torch._custom_op.impl.custom_op('atb::fused_op')
+def fused_op(query: Tensor,
+                          key: Tensor,
+                          value: Tensor,
+                          k_cache: Tensor,
+                          v_cache: Tensor,
+                          kv_start_indices_1d: Tensor,
+                          kv_seqlens_int: Tensor,
+                          mask: Tensor,
+                          num_heads: int,
+                          num_kv_heads: int,
+                          kv_head_size: int,
+                          block_size: int) -> Tensor:
+    ...
+
+@fused_op.impl_abstract()
+def fused_op_abstract(query: Tensor,
+                                   key: Tensor,
+                                   value: Tensor,
+                                   k_cache: Tensor,
+                                   v_cache: Tensor,
+                                   kv_start_indices_1d: Tensor,
+                                   kv_seqlens_int: Tensor,
+                                   mask: Tensor,
+                                   num_heads: int,
+                                   num_kv_heads: int,
+                                   kv_head_size: int,
+                                   block_size: int):
+    return query
+
+@fused_op.impl(['cpu', 'cuda'])
+def fused_op_impl(query: Tensor,
+                               key: Tensor,
+                               value: Tensor,
+                               k_cache: Tensor,
+                               v_cache: Tensor,
+                               kv_start_indices_1d: Tensor,
+                               kv_seqlens_int: Tensor,
+                               mask: Tensor,
+                               num_heads: int,
+                               num_kv_heads: int,
+                               kv_head_size: int,
+                               block_size: int):
+    return query
+
+# rms_norm: 
+# view
+# linear
+@torch._custom_op.impl.custom_op('atb::llama_prefill')
+def llama_prefill(hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,) -> tuple[Tensor, Tensor]:
+    ...
+
+@llama_prefill.impl_abstract()
+def llama_prefill_abstract(
+                  hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,):
+    return residual, residual
+
+@llama_prefill.impl(['cpu', 'cuda'])
+def llama_prefill_impl(
+                  hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,):
+    return residual, residual
+
+@torch._custom_op.impl.custom_op('atb::llama_prefill_and_norm')
+def llama_prefill_and_norm(hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  rms_norm_3_gamma: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,) -> Tensor:
+    ...
+
+@llama_prefill_and_norm.impl_abstract()
+def llama_prefill_and_norm_abstract(
+                  hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  rms_norm_3_gamma: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,):
+    return hidden_states
+
+@llama_prefill_and_norm.impl(['cpu', 'cuda'])
+def llama_prefill_and_norm_impl(
+                  hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  rms_norm_3_gamma: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,):
+    return hidden_states
+
+
+@torch._custom_op.impl.custom_op('atb::llama_decode')
+def llama_decode(hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  block_offsets: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,) -> tuple[Tensor, Tensor]:
+    ...
+
+@llama_decode.impl_abstract()
+def llama_decode_abstract(
+                  hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  block_offsets: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,):
+    return residual, residual
+
+@llama_decode.impl(['cpu', 'cuda'])
+def llama_decode_impl(
+                  hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  block_offsets: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,):
+    return residual, residual
+
+@torch._custom_op.impl.custom_op('atb::llama_decode_and_norm')
+def llama_decode_and_norm(hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  block_offsets: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  rms_norm_3_gamma: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,) -> Tensor:
+    ...
+
+@llama_decode_and_norm.impl_abstract()
+def llama_decode_and_norm_abstract(
+                  hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  block_offsets: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  rms_norm_3_gamma: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,):
+    return hidden_states
+
+@llama_decode_and_norm.impl(['cpu', 'cuda'])
+def llama_decode_and_norm_impl(
+                  hidden_states: Tensor,
+                  residual: Tensor,
+                  rms_norm_1_gamma: Tensor,
+                  qkv_weight: Tensor,
+                  cos: Tensor,
+                  sin: Tensor,
+                  k_cache: Tensor,
+                  v_cache: Tensor,
+                  kv_start_indices_1d: Tensor,
+                  kv_seqlens_int: Tensor,
+                  mask: Tensor,
+                  block_offsets: Tensor,
+                  o_weight: Tensor,
+                  rms_norm_2_gamma: Tensor,
+                  gate_up: Tensor,
+                  down: Tensor,
+                  rms_norm_3_gamma: Tensor,
+                  eps: float,
+                  q_num_heads: int,
+                  kv_num_heads: int,
+                  head_size: int,
+                  block_size: int,):
+    return hidden_states
+
+

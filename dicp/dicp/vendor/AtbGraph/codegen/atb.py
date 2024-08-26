@@ -15,15 +15,7 @@ from dicp.vendor.AtbGraph.codegen.utils import (
     get_acl_dtype,
     remove_duplicates,
 )
-from dicp.vendor.AtbGraph.codegen.atb_graph import (Operation,
-                                                    GetItemOperation,
-                                                    InplaceOperation,
-                                                    AtbTupleOperation,
-                                                    ViewOperation,
-                                                    GraphOpearation,
-                                                    Graph,
-                                                    parse_graph,
-                                                    )
+from dicp.vendor.AtbGraph.codegen.atb_graph import Graph, parse_graph
 from dicp.vendor.AtbGraph.codegen.atb_op import AtbOverrides
 
 graph_id = 0
@@ -293,7 +285,7 @@ class AtbCodegen(torch.fx.Interpreter):
         call_body.writeline(f'''inputs = [{','.join(graph_input_names)}]''')
         
         call_body.writeline(f'''outputs = [{','.join(graph_output_names)}]''')
-        call_body.writeline(f'''import pdb;pdb.set_trace()''')
+        # call_body.writeline(f'''import pdb;pdb.set_trace()''')
         call_body.writeline('kernel_cpp_0(inputs, outputs, output_shape)')
 
         # py_output_names = self.preprocess_tensor_names(self.py_output_names)
