@@ -18,8 +18,9 @@ class AtbCompileJob(DeviceCompileJob):
         self._key, self._input_path = write(
             source_code.strip(),
             "json",
-            extra=cpp_compile_command("i", "o", vec_isa=picked_vec_isa) +
-            'local_rank' + str(self._local_rank)
+            # extra=cpp_compile_command("i", "o", vec_isa=picked_vec_isa) +
+            # 'local_rank' + str(self._local_rank)
+            extra= 'local_rank' + str(self._local_rank)
         )
         self._output_graph_path = self._input_path[:-5] + '/graph'
 

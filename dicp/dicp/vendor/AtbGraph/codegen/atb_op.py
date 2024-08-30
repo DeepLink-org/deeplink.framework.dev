@@ -71,7 +71,7 @@ class AtbOverrides:
                 if len(meta_val) != 1:
                     node_name = str(x)
                     for i in range(len(meta_val)):
-                        graph_output_names.append(f"{node_name}_{i}")
+                        graph_output_names.append(f"{node_name}__{i}")
                     continue
             graph_output_names.append(str(x))
 
@@ -108,7 +108,7 @@ class AtbOverrides:
 
         op.set_input([query, key, cos, sin, seqlen])
         op.set_param(param)
-        op.set_output([f"{name}_0", f"{name}_1"])
+        op.set_output([f"{name}__0", f"{name}__1"])
         return op
 
     def Inplace(name, input, target, input_index=-1, target_index=-1):
@@ -124,8 +124,8 @@ class AtbOverrides:
         op = Operation(name, "SelfAttentionOperation")
         param = infer_param.SelfAttentionParam()
         param.calcType = infer_param.SelfAttentionCalcType.PA_ENCODER
-        param.kernelType = infer_param.SelfAttentionKernelType.KERNELTYPE_DEFAULT
-        # param.kernelType = infer_param.SelfAttentionKernelType.KERNELTYPE_HIGH_PRECISION
+        # param.kernelType = infer_param.SelfAttentionKernelType.KERNELTYPE_DEFAULT
+        param.kernelType = infer_param.SelfAttentionKernelType.KERNELTYPE_HIGH_PRECISION
         param.clampType = infer_param.SelfAttentionClampType.CLAMP_TYPE_UNDEFINED
         param.headNum = q_head_num
         param.kvHeadNum = kv_head_num
@@ -151,7 +151,7 @@ class AtbOverrides:
 
         op.set_param(param)
         op.set_input([key, value, key_cache, value_cache, kv_indices])
-        op.set_output([f"{name}_0", f"{name}_1"])
+        op.set_output([f"{name}__0", f"{name}__1"])
         return op
 
     def PagedAttention(name, query, key_cache, value_cache, block_table, context_len, mask, q_head_num, kv_head_num, scale):
@@ -179,7 +179,7 @@ class AtbOverrides:
         param.epsilon = epsilon
         op.set_param(param)
         op.set_input([x1, x2, gamma])
-        op.set_output([f"{name}_0", f"{name}_1", f"{name}_2"])
+        op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
         return op
 
     def Transpose(name, x, perm):
@@ -217,9 +217,9 @@ class AtbOverrides:
         op.set_param(param)
         op.set_input([x])
         if len(size) == 2:
-            op.set_output([f"{name}_0", f"{name}_1"])
+            op.set_output([f"{name}__0", f"{name}__1"])
         else:
-            op.set_output([f"{name}_0", f"{name}_1", f"{name}_2"])
+            op.set_output([f"{name}__0", f"{name}__1", f"{name}__2"])
         return op
 
     def Swish(name, x, scale=1.0, dim=-1):

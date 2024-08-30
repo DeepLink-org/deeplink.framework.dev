@@ -123,7 +123,7 @@ class TorchFused(BackendPatternBase):
 class TorchLLamaPrefill1(BackendPatternBase):
     @staticmethod
     def pattern(
-        hidden_states, residual,
+        hidden_states,
         rms_norm_1_gamma, eps_1, # rms_norm
         qkv_weight,
         all_heads, # self.num_heads + self.num_kv_heads + self.num_kv_heads
@@ -148,8 +148,7 @@ class TorchLLamaPrefill1(BackendPatternBase):
         down,
         rms_norm_3_gamma, eps_3,
     ):
-        residual = atb.add.default(hidden_states, residual)
-        rms_norm = infer_ext.rms_norm.default(residual, rms_norm_1_gamma, eps_1)
+        rms_norm = infer_ext.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
         linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
         view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
         split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
@@ -180,7 +179,7 @@ class TorchLLamaPrefill1(BackendPatternBase):
         view_10 = aten.view.default(context_attention, [1, -1, llama_hidden_size])
         linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
         
-        add = atb.add.default(linear_1, residual)
+        add = atb.add.default(linear_1, hidden_states)
         rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
         
         mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
@@ -190,7 +189,7 @@ class TorchLLamaPrefill1(BackendPatternBase):
 
     @staticmethod
     def replacement(
-        hidden_states, residual,
+        hidden_states,
         rms_norm_1_gamma, eps_1, # rms_norm
         qkv_weight,
         all_heads, # self.num_heads + self.num_kv_heads + self.num_kv_heads
@@ -216,7 +215,6 @@ class TorchLLamaPrefill1(BackendPatternBase):
         rms_norm_3_gamma, eps_3,
     ):
         out = torch.ops.atb.llama_prefill_and_norm.default(hidden_states,
-                                                            residual,
                                                             rms_norm_1_gamma,
                                                             qkv_weight,
                                                             cos,
@@ -242,7 +240,7 @@ class TorchLLamaPrefill1(BackendPatternBase):
 class TorchLLamaPrefill2(BackendPatternBase):
     @staticmethod
     def pattern(
-        hidden_states, residual,
+        hidden_states,
         rms_norm_1_gamma, eps_1, # rms_norm
         qkv_weight,
         all_heads, # self.num_heads + self.num_kv_heads + self.num_kv_heads
@@ -266,8 +264,7 @@ class TorchLLamaPrefill2(BackendPatternBase):
         gate_up,
         down,
     ):
-        residual = atb.add.default(hidden_states, residual)
-        rms_norm = infer_ext.rms_norm.default(residual, rms_norm_1_gamma, eps_1)
+        rms_norm = infer_ext.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
         linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
         view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
         split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
@@ -298,126 +295,12 @@ class TorchLLamaPrefill2(BackendPatternBase):
         view_10 = aten.view.default(context_attention, [1, -1, llama_hidden_size])
         linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
         
-        add = atb.add.default(linear_1, residual)
+        add = atb.add.default(linear_1, hidden_states)
         rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
         
         mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
-        return mlp_gate, add
-
-    @staticmethod
-    def replacement(
-        hidden_states, residual,
-        rms_norm_1_gamma, eps_1, # rms_norm
-        qkv_weight,
-        all_heads, # self.num_heads + self.num_kv_heads + self.num_kv_heads
-        llama_head_dim, # self.head_dim
-        llama_hidden_size, # self.num_heads * self.head_dim
-        llama_num_heads, # self.num_heads
-        llama_num_kv_heads, # self.num_kv_heads
-        cos, sin,  # rope
-        k_cache, v_cache,
-        block_size,        # self.block_size
-        attn_num_heads,    # self.num_heads
-        attn_num_kv_heads, # self.num_kv_heads
-        attn_v_head_size,  # self.v_head_size
-        attn_hidden_size_q, # self.num_heads * self.v_head_size
-        attn_hidden_size_kv, # self.num_kv_heads * self.v_head_size
-        kv_start_indices_1d,
-        kv_seqlens_int,
-        mask,
-        o_weight,
-        rms_norm_2_gamma, eps_2,
-        gate_up,
-        down,
-    ):
-        hidden_states, residual = torch.ops.atb.llama_prefill.default(hidden_states,
-                                                  residual,
-                                                  rms_norm_1_gamma,
-                                                  qkv_weight,
-                                                  cos,
-                                                  sin,
-                                                  k_cache,
-                                                  v_cache,
-                                                  kv_start_indices_1d,
-                                                  kv_seqlens_int,
-                                                  mask,
-                                                  o_weight,
-                                                  rms_norm_2_gamma,
-                                                  gate_up,
-                                                  down,
-                                                  eps_1,
-                                                  llama_num_heads,
-                                                  llama_num_kv_heads,
-                                                  llama_head_dim,
-                                                  block_size)
-        return hidden_states, residual
-
-
-@register_torch_pattern_3
-class TorchLLamaPrefill3(BackendPatternBase):
-    @staticmethod
-    def pattern(
-        hidden_states,
-        rms_norm_1_gamma, eps_1, # rms_norm
-        qkv_weight,
-        all_heads, # self.num_heads + self.num_kv_heads + self.num_kv_heads
-        llama_head_dim, # self.head_dim
-        llama_hidden_size, # self.num_heads * self.head_dim
-        llama_num_heads, # self.num_heads
-        llama_num_kv_heads, # self.num_kv_heads
-        cos, sin,  # rope
-        k_cache, v_cache,
-        block_size,        # self.block_size
-        attn_num_heads,    # self.num_heads
-        attn_num_kv_heads, # self.num_kv_heads
-        attn_v_head_size,  # self.v_head_size
-        attn_hidden_size_q, # self.num_heads * self.v_head_size
-        attn_hidden_size_kv, # self.num_kv_heads * self.v_head_size
-        kv_start_indices_1d,
-        kv_seqlens_int,
-        mask,
-        o_weight,
-        rms_norm_2_gamma, eps_2,
-        gate_up,
-        down,
-    ):
-        residual= hidden_states
-        rms_norm = infer_ext.rms_norm.default(residual, rms_norm_1_gamma, eps_1)
-        linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
-        view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
-        split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
-        getitem = split[0]
-        getitem_1 = split[1]
-        getitem_2 = split[2]
-        
-        view_1 = aten.view.default(getitem, [-1, llama_hidden_size])
-        view_2 = aten.view.default(getitem_1, [-1, llama_hidden_size])
-        rope = atb.rope.default(view_1, view_2, cos, sin, kv_seqlens_int)
-        getitem_3 = rope[0]
-        getitem_4 = rope[1]
-        
-        view_3 = aten.view.default(getitem_3, [-1, llama_num_heads, llama_head_dim])
-        view_4 = aten.view.default(getitem_4, [-1, llama_num_heads, llama_head_dim])
-        
-        view_5 = aten.view.default(k_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
-        view_6 = aten.view.default(v_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
-        fill_kv_cache = infer_ext.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
-        getitem_5 = fill_kv_cache[0]
-        getitem_6 = fill_kv_cache[1]
-
-        view_7 = aten.view.default(view_3, [-1, attn_hidden_size_q])
-        view_8 = aten.view.default(view_4, [-1, attn_hidden_size_kv])
-        view_9 = aten.view.default(getitem_2, [-1, attn_hidden_size_kv])
-        context_attention = atb.context_attention.default(view_7, view_8, view_9, getitem_5, getitem_6, kv_seqlens_int, mask, attn_num_heads, attn_num_kv_heads)        
-        
-        view_10 = aten.view.default(context_attention, [1, -1, llama_hidden_size])
-        linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
-        
-        add = atb.add.default(linear_1, residual)
-        rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
-        
-        mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
-        return mlp_gate, add
+        add_1 = atb.add.default(mlp_gate, add)
+        return add_1
 
     @staticmethod
     def replacement(
@@ -445,8 +328,7 @@ class TorchLLamaPrefill3(BackendPatternBase):
         gate_up,
         down,
     ):
-        hidden_states, residual = torch.ops.atb.llama_prefill.default(hidden_states,
-                                                  None,
+        out = torch.ops.atb.llama_prefill.default(hidden_states,
                                                   rms_norm_1_gamma,
                                                   qkv_weight,
                                                   cos,
@@ -465,14 +347,15 @@ class TorchLLamaPrefill3(BackendPatternBase):
                                                   llama_num_kv_heads,
                                                   llama_head_dim,
                                                   block_size)
-        return hidden_states, residual
+        return out
+
 
 
 @register_torch_pattern_3
 class TorchLLamaDecode1(BackendPatternBase):
     @staticmethod
     def pattern(
-        hidden_states, residual,
+        hidden_states,
         rms_norm_1_gamma, eps_1, # rms_norm
         qkv_weight,
         all_heads, # self.num_heads + self.num_kv_heads + self.num_kv_heads
@@ -496,8 +379,7 @@ class TorchLLamaDecode1(BackendPatternBase):
         down,
         rms_norm_3_gamma, eps_3,
     ):
-        residual = atb.add.default(hidden_states, residual)
-        rms_norm = infer_ext.rms_norm.default(residual, rms_norm_1_gamma, eps_1)
+        rms_norm = infer_ext.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
         linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
         view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
         split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
@@ -525,7 +407,7 @@ class TorchLLamaDecode1(BackendPatternBase):
         view_10 = aten.view.default(paged_attention, [1, -1, llama_hidden_size])
         linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
         
-        add = atb.add.default(linear_1, residual)
+        add = atb.add.default(linear_1, hidden_states)
         rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
         
         mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
@@ -535,7 +417,7 @@ class TorchLLamaDecode1(BackendPatternBase):
 
     @staticmethod
     def replacement(
-        hidden_states, residual,
+        hidden_states,
         rms_norm_1_gamma, eps_1, # rms_norm
         qkv_weight,
         all_heads, # self.num_heads + self.num_kv_heads + self.num_kv_heads
@@ -560,7 +442,6 @@ class TorchLLamaDecode1(BackendPatternBase):
         rms_norm_3_gamma, eps_3,
     ):
         out = torch.ops.atb.llama_decode_and_norm.default(hidden_states,
-                                                            residual,
                                                             rms_norm_1_gamma,
                                                             qkv_weight,
                                                             cos,
@@ -588,7 +469,7 @@ class TorchLLamaDecode1(BackendPatternBase):
 class TorchLLamaDecode2(BackendPatternBase):
     @staticmethod
     def pattern(
-        hidden_states, residual,
+        hidden_states,
         rms_norm_1_gamma, eps_1, # rms_norm
         qkv_weight,
         all_heads, # self.num_heads + self.num_kv_heads + self.num_kv_heads
@@ -611,8 +492,7 @@ class TorchLLamaDecode2(BackendPatternBase):
         gate_up,
         down
     ):
-        residual = atb.add.default(hidden_states, residual)
-        rms_norm = infer_ext.rms_norm.default(residual, rms_norm_1_gamma, eps_1)
+        rms_norm = infer_ext.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
         linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
         view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
         split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
@@ -640,122 +520,12 @@ class TorchLLamaDecode2(BackendPatternBase):
         view_10 = aten.view.default(paged_attention, [1, -1, llama_hidden_size])
         linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
         
-        add = atb.add.default(linear_1, residual)
+        add = atb.add.default(linear_1, hidden_states)
         rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
         
         mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
-        return mlp_gate, add
-
-    @staticmethod
-    def replacement(
-        hidden_states, residual,
-        rms_norm_1_gamma, eps_1, # rms_norm
-        qkv_weight,
-        all_heads, # self.num_heads + self.num_kv_heads + self.num_kv_heads
-        llama_head_dim, # self.head_dim
-        llama_hidden_size, # self.num_heads * self.head_dim
-        llama_num_heads, # self.num_heads
-        llama_num_kv_heads, # self.num_kv_heads
-        cos, sin,  # rope
-        k_cache, v_cache,
-        block_size,        # self.block_size
-        attn_num_heads,    # self.num_heads
-        attn_num_kv_heads, # self.num_kv_heads
-        attn_v_head_size,  # self.v_head_size
-        kv_start_indices_1d,
-        kv_seqlens_int,
-        mask,
-        block_offsets,
-        o_weight,
-        rms_norm_2_gamma, eps_2,
-        gate_up,
-        down
-    ):
-        hidden_states, residual = torch.ops.atb.llama_decode.default(hidden_states,
-                                                            residual,
-                                                            rms_norm_1_gamma,
-                                                            qkv_weight,
-                                                            cos,
-                                                            sin,
-                                                            k_cache,
-                                                            v_cache,
-                                                            kv_start_indices_1d,
-                                                            kv_seqlens_int,
-                                                            mask,
-                                                            block_offsets,
-                                                            o_weight,
-                                                            rms_norm_2_gamma,
-                                                            gate_up,
-                                                            down,
-                                                            eps_1,
-                                                            llama_num_heads,
-                                                            llama_num_kv_heads,
-                                                            llama_head_dim,
-                                                            block_size)
-        return hidden_states, residual
-
-
-@register_torch_pattern_3
-class TorchLLamaDecode3(BackendPatternBase):
-    @staticmethod
-    def pattern(
-        hidden_states,
-        rms_norm_1_gamma, eps_1, # rms_norm
-        qkv_weight,
-        all_heads, # self.num_heads + self.num_kv_heads + self.num_kv_heads
-        llama_head_dim, # self.head_dim
-        llama_hidden_size, # self.num_heads * self.head_dim
-        llama_num_heads, # self.num_heads
-        llama_num_kv_heads, # self.num_kv_heads
-        cos, sin,  # rope
-        k_cache, v_cache,
-        block_size,        # self.block_size
-        attn_num_heads,    # self.num_heads
-        attn_num_kv_heads, # self.num_kv_heads
-        attn_v_head_size,  # self.v_head_size
-        kv_start_indices_1d,
-        kv_seqlens_int,
-        mask,
-        block_offsets,
-        o_weight,
-        rms_norm_2_gamma, eps_2,
-        gate_up,
-        down
-    ):
-        residual= hidden_states
-        rms_norm = infer_ext.rms_norm.default(residual, rms_norm_1_gamma, eps_1)
-        linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
-        view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
-        split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
-        getitem = split[0]
-        getitem_1 = split[1]
-        getitem_2 = split[2]
-        
-        view_1 = aten.view.default(getitem, [-1, llama_hidden_size])
-        view_2 = aten.view.default(getitem_1, [-1, llama_hidden_size])
-        rope = atb.rope.default(view_1, view_2, cos, sin, kv_seqlens_int)
-        getitem_3 = rope[0]
-        getitem_4 = rope[1]
-        
-        view_3 = aten.view.default(getitem_3, [-1, llama_num_heads, llama_head_dim])
-        view_4 = aten.view.default(getitem_4, [-1, llama_num_heads, llama_head_dim])
-        
-        view_5 = aten.view.default(k_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
-        view_6 = aten.view.default(v_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
-        fill_kv_cache = infer_ext.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
-        getitem_5 = fill_kv_cache[0]
-        getitem_6 = fill_kv_cache[1]
-
-        paged_attention = atb.paged_attention_decode.default(view_3, getitem_5, getitem_6, block_offsets, kv_seqlens_int, mask, attn_num_heads, attn_num_kv_heads)        
-        
-        view_10 = aten.view.default(paged_attention, [1, -1, llama_hidden_size])
-        linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
-        
-        add = atb.add.default(linear_1, residual)
-        rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
-        
-        mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
-        return mlp_gate, add
+        add_1 = atb.add.default(mlp_gate, add)
+        return add_1
 
     @staticmethod
     def replacement(
@@ -782,8 +552,7 @@ class TorchLLamaDecode3(BackendPatternBase):
         gate_up,
         down
     ):
-        hidden_states, residual = torch.ops.atb.llama_decode.default(hidden_states,
-                                                            None,
+        out = torch.ops.atb.llama_decode.default(hidden_states,
                                                             rms_norm_1_gamma,
                                                             qkv_weight,
                                                             cos,
@@ -803,6 +572,122 @@ class TorchLLamaDecode3(BackendPatternBase):
                                                             llama_num_kv_heads,
                                                             llama_head_dim,
                                                             block_size)
-        return hidden_states, residual
+        return out
 
 
+
+# @register_torch_pattern_3
+# class TorchLLamaPrefill3(BackendPatternBase):
+#     @staticmethod
+#     def pattern(
+#         hidden_states,
+#         rms_norm_1_gamma, eps_1,
+#         qkv_weight,
+#         all_heads,
+#         llama_head_dim, # self.head_dim
+#         llama_num_heads, # self.num_heads
+#         llama_hidden_size,
+#         llama_num_kv_heads, # self.num_kv_heads
+#         cos, sin,  # rope
+#         k_cache, v_cache,
+#         block_size,        # self.block_size
+#         attn_num_heads,    # self.num_heads
+#         attn_num_kv_heads, # self.num_kv_heads
+#         attn_v_head_size,  # self.v_head_size
+#         attn_hidden_size_q, # self.num_heads * self.v_head_size
+#         attn_hidden_size_kv, # self.num_kv_heads * self.v_head_size
+#         kv_start_indices_1d,
+#         kv_seqlens_int,
+#         mask,
+#         o_weight,
+#         rms_norm_2_gamma, eps_2,
+#         gate_up,
+#         down,
+#     ):
+#         # residual2 = atb.add.default(hidden_states, residual)
+#         rms_norm = infer_ext.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
+#         linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
+#         view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
+#         split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
+#         getitem = split[0]
+#         getitem_1 = split[1]
+#         getitem_2 = split[2]
+        
+#         view_1 = aten.view.default(getitem, [-1, llama_hidden_size])
+#         view_2 = aten.view.default(getitem_1, [-1, llama_hidden_size])
+#         rope = atb.rope.default(view_1, view_2, cos, sin, kv_seqlens_int)
+#         getitem_3 = rope[0]
+#         getitem_4 = rope[1]
+
+#         view_3 = aten.view.default(getitem_3, [-1, llama_num_heads, llama_head_dim])
+#         view_4 = aten.view.default(getitem_4, [-1, llama_num_heads, llama_head_dim])
+        
+#         view_5 = aten.view.default(k_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
+#         view_6 = aten.view.default(v_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
+#         fill_kv_cache = infer_ext.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
+#         getitem_5 = fill_kv_cache[0]
+#         getitem_6 = fill_kv_cache[1]
+
+#         view_7 = aten.view.default(view_3, [-1, attn_hidden_size_q])
+#         view_8 = aten.view.default(view_4, [-1, attn_hidden_size_kv])
+#         view_9 = aten.view.default(getitem_2, [-1, attn_hidden_size_kv])
+#         context_attention = atb.context_attention.default(view_7, view_8, view_9, getitem_5, getitem_6, kv_seqlens_int, mask, attn_num_heads, attn_num_kv_heads)     
+
+#         view_10 = aten.view.default(context_attention, [1, -1, llama_hidden_size])
+#         linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
+        
+#         add = atb.add.default(linear_1, hidden_states)
+#         rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
+        
+#         mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
+#         add_1 = atb.add.default(mlp_gate, add)
+#         return add_1
+
+#     @staticmethod
+#     def replacement(
+#         hidden_states,
+#         rms_norm_1_gamma, eps_1,
+#         qkv_weight,
+#         all_heads,
+#         llama_head_dim, # self.head_dim
+#         llama_num_heads, # self.num_heads
+#         llama_hidden_size,
+#         llama_num_kv_heads, # self.num_kv_heads
+#         cos, sin,  # rope
+#         k_cache, v_cache,
+#         block_size,        # self.block_size
+#         attn_num_heads,    # self.num_heads
+#         attn_num_kv_heads, # self.num_kv_heads
+#         attn_v_head_size,  # self.v_head_size
+#         attn_hidden_size_q, # self.num_heads * self.v_head_size
+#         attn_hidden_size_kv, # self.num_kv_heads * self.v_head_size
+#         kv_start_indices_1d,
+#         kv_seqlens_int,
+#         mask,
+#         o_weight,
+#         rms_norm_2_gamma, eps_2,
+#         gate_up,
+#         down,
+#     ):
+#         add = torch.ops.atb.debug.default(
+#                                           hidden_states,
+#                                           None,
+#                                           rms_norm_1_gamma,
+#                                           qkv_weight,
+#                                           cos,
+#                                           sin,
+#                                           k_cache,
+#                                           v_cache,
+#                                           kv_start_indices_1d,
+#                                           kv_seqlens_int,
+#                                           mask,
+#                                           o_weight,
+#                                           rms_norm_2_gamma,
+#                                           gate_up,
+#                                           down,
+#                                           eps_2,
+#                                           attn_num_heads,
+#                                           attn_num_kv_heads,
+#                                           llama_head_dim,
+#                                           block_size)
+#         return add

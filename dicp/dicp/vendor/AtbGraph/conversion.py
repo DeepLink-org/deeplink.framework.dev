@@ -302,10 +302,111 @@ class AtenToAtbTransformer(SingleOpTransformer):
         return out
 
 
+    @register_conversion(torch.ops.atb.debug.default)
+    def debug(self,
+          hidden_states,
+          residual,
+          rms_norm_1_gamma,
+          qkv_weight,
+          cos,
+          sin,
+          k_cache,
+          v_cache,
+          kv_start_indices_1d,
+          kv_seqlens_int,
+          mask,
+          o_weight,
+          rms_norm_2_gamma,
+          gate_up,
+          down,
+          eps,
+          q_num_heads,
+          kv_num_heads,
+          head_size,
+          block_size,):
+
+        # if residual is None:
+        #     residual = hidden_states
+        # else:
+        # residual2 = self.get_proxy(atb_op.Add, (hidden_states, residual))
+        rms_norm = self.get_proxy(atb_op.RmsNorm, (hidden_states, rms_norm_1_gamma, eps))
+        linear = self.get_proxy(atb_op.Linear, (rms_norm, qkv_weight, None, False, True))
+        
+        all_heads = q_num_heads + kv_num_heads + kv_num_heads
+        
+        view = self.get_proxy(atb_op.View, (linear, [-1, all_heads, head_size]))
+        split = self.get_proxy(atb_op.SplitSharing, (view, [q_num_heads, kv_num_heads, kv_num_heads], 1))
+        getitem = self.get_proxy(atb_op.GetItem, (split, 0))
+        getitem_1 = self.get_proxy(atb_op.GetItem, (split, 1))
+        getitem_2 = self.get_proxy(atb_op.GetItem, (split, 2))
+
+        
+        view_1 = self.get_proxy(atb_op.View, (getitem, [-1, q_num_heads * head_size]))
+        view_2 = self.get_proxy(atb_op.View, (getitem_1, [-1, kv_num_heads * head_size]))
+        rope = self.get_proxy(atb_op.Rope, (view_1, view_2, cos, sin, kv_seqlens_int))
+        getitem_3 = self.get_proxy(atb_op.GetItem, (rope, 0))
+        getitem_4 = self.get_proxy(atb_op.GetItem, (rope, 1))
+
+        view_3 = self.get_proxy(atb_op.View, (getitem_3, [-1, q_num_heads, head_size]))
+        view_4 = self.get_proxy(atb_op.View, (getitem_4, [-1, kv_num_heads, head_size]))
+        
+        view_5 = self.get_proxy(atb_op.View, (k_cache, [-1, block_size, kv_num_heads, head_size]))
+        view_6 = self.get_proxy(atb_op.View, (v_cache, [-1, block_size, kv_num_heads, head_size]))
+        fill_kv_cache = self.get_proxy(atb_op.ReshapeAndCache, (view_4, getitem_2, view_5, view_6, kv_start_indices_1d))
+        inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, view_5, 0))
+        inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, view_6, 1))
+        
+        view_7 = self.get_proxy(atb_op.View, (view_3, [-1, q_num_heads * head_size]))
+        view_8 = self.get_proxy(atb_op.View, (view_4, [-1, kv_num_heads * head_size]))
+        view_9 = self.get_proxy(atb_op.View, (getitem_2, [-1, kv_num_heads * head_size]))
+        context_attention = self.get_proxy(atb_op.SelfAttentionPAEncoder, (view_7, view_8, view_9, kv_seqlens_int, mask, q_num_heads, kv_num_heads))
+
+        view_10 = self.get_proxy(atb_op.View, (context_attention, [1, -1, q_num_heads * head_size]))
+        linear_1 = self.get_proxy(atb_op.Linear, (view_10, o_weight, None, False, True))
+
+        add = self.get_proxy(atb_op.Add, (linear_1, hidden_states))
+        rms_norm_1 = self.get_proxy(atb_op.RmsNorm, (add, rms_norm_2_gamma, eps))
+
+        # input: rms_norm_1
+        mlp_mm1 = self.get_proxy(atb_op.Linear, (rms_norm_1, gate_up, None, False, True))
+        mlp_split = self.get_proxy(atb_op.SplitSharing, (mlp_mm1, [1, 1], -1))
+        mlp_gate = self.get_proxy(atb_op.GetItem, (mlp_split, 0))
+        mlp_up = self.get_proxy(atb_op.GetItem, (mlp_split, 1))
+        mlp_act = self.get_proxy(atb_op.Swish, (mlp_gate,))
+        mlp_mul = self.get_proxy(atb_op.Mul, (mlp_act, mlp_up))
+        mlp = self.get_proxy(atb_op.Linear, (mlp_mul, down, None, False, True))
+
+        add_1 = self.get_proxy(atb_op.Add, (mlp, add))
+
+        graph_0 = self.get_proxy(atb_op.Graph, ( 
+                                              rms_norm,
+                                              linear,
+                                              split,
+                                              getitem,
+                                              getitem_1,
+                                              getitem_2,
+                                              rope,
+                                              getitem_3,
+                                              getitem_4,
+                                              fill_kv_cache,
+                                              context_attention,
+                                              linear_1,
+                                              add,
+                                              rms_norm_1,
+                                              mlp_mm1,
+                                              mlp_split,
+                                              mlp_gate,
+                                              mlp_up,
+                                              mlp_act,
+                                              mlp_mul,
+                                              mlp,
+                                              add_1
+                                              ), {"output": [add_1, mlp_gate, mlp_up, getitem, getitem_1, getitem_2]})
+        return add_1
+
     @register_conversion(torch.ops.atb.llama_prefill.default)
     def atb_llama_prefill(self,
                           hidden_states,
-                          residual,
                           rms_norm_1_gamma,
                           qkv_weight,
                           cos,
@@ -324,13 +425,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                           kv_num_heads,
                           head_size,
                           block_size):
-        first_add = False
-        if residual is None:
-            residual = hidden_states
-        else:
-            residual = self.get_proxy(atb_op.Add, (hidden_states, residual))
-            first_add = True
-        rms_norm = self.get_proxy(atb_op.RmsNorm, (residual, rms_norm_1_gamma, eps))
+        rms_norm = self.get_proxy(atb_op.RmsNorm, (hidden_states, rms_norm_1_gamma, eps))
         linear = self.get_proxy(atb_op.Linear, (rms_norm, qkv_weight, None, False, True))
         
         all_heads = q_num_heads + kv_num_heads + kv_num_heads
@@ -341,29 +436,30 @@ class AtenToAtbTransformer(SingleOpTransformer):
         getitem_2 = self.get_proxy(atb_op.GetItem, (split, 2))
         
         view_1 = self.get_proxy(atb_op.View, (getitem, [-1, q_num_heads * head_size]))
-        view_2 = self.get_proxy(atb_op.View, (getitem_1, [-1, q_num_heads * head_size]))
+        view_2 = self.get_proxy(atb_op.View, (getitem_1, [-1, kv_num_heads * head_size]))
         rope = self.get_proxy(atb_op.Rope, (view_1, view_2, cos, sin, kv_seqlens_int))
         getitem_3 = self.get_proxy(atb_op.GetItem, (rope, 0))
         getitem_4 = self.get_proxy(atb_op.GetItem, (rope, 1))
-        
+
         view_3 = self.get_proxy(atb_op.View, (getitem_3, [-1, q_num_heads, head_size]))
         view_4 = self.get_proxy(atb_op.View, (getitem_4, [-1, kv_num_heads, head_size]))
         
         view_5 = self.get_proxy(atb_op.View, (k_cache, [-1, block_size, kv_num_heads, head_size]))
         view_6 = self.get_proxy(atb_op.View, (v_cache, [-1, block_size, kv_num_heads, head_size]))
         fill_kv_cache = self.get_proxy(atb_op.ReshapeAndCache, (view_4, getitem_2, view_5, view_6, kv_start_indices_1d))
-        inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
-        inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
+        inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, view_5, 0))
+        inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, view_6, 1))
         
         view_7 = self.get_proxy(atb_op.View, (view_3, [-1, q_num_heads * head_size]))
         view_8 = self.get_proxy(atb_op.View, (view_4, [-1, kv_num_heads * head_size]))
         view_9 = self.get_proxy(atb_op.View, (getitem_2, [-1, kv_num_heads * head_size]))
         context_attention = self.get_proxy(atb_op.SelfAttentionPAEncoder, (view_7, view_8, view_9, kv_seqlens_int, mask, q_num_heads, kv_num_heads))
 
+
         view_10 = self.get_proxy(atb_op.View, (context_attention, [1, -1, q_num_heads * head_size]))
         linear_1 = self.get_proxy(atb_op.Linear, (view_10, o_weight, None, False, True))
 
-        add = self.get_proxy(atb_op.Add, (linear_1, residual))
+        add = self.get_proxy(atb_op.Add, (linear_1, hidden_states))
         rms_norm_1 = self.get_proxy(atb_op.RmsNorm, (add, rms_norm_2_gamma, eps))
 
         # input: rms_norm_1
@@ -374,84 +470,36 @@ class AtenToAtbTransformer(SingleOpTransformer):
         mlp_act = self.get_proxy(atb_op.Swish, (mlp_gate,))
         mlp_mul = self.get_proxy(atb_op.Mul, (mlp_act, mlp_up))
         mlp = self.get_proxy(atb_op.Linear, (mlp_mul, down, None, False, True))
-
-        if first_add:
-            graph = self.get_proxy(atb_op.Graph, (residual,
-                                                  rms_norm,
-                                                  linear,
-                                                  view,
-                                                  split,
-                                                  getitem,
-                                                  getitem,
-                                                  getitem_1,
-                                                  getitem_2,
-                                                  view_1,
-                                                  view_2,
-                                                  rope,
-                                                  getitem_3,
-                                                  getitem_4,
-                                                  view_3,
-                                                  view_4,
-                                                  view_5,
-                                                  view_6,
-                                                  fill_kv_cache,
-                                                  view_7,
-                                                  view_8,
-                                                  view_9,
-                                                  context_attention,
-                                                  view_10,
-                                                  linear_1,
-                                                  add,
-                                                  rms_norm_1,
-                                                  mlp_mm1,
-                                                  mlp_split,
-                                                  mlp_gate,
-                                                  mlp_up,
-                                                  mlp_act,
-                                                  mlp_mul,
-                                                  mlp,), {"output": [mlp, add]})
-                                                #   mlp,), {"output": [mlp, add], 'infer_shape': {"type": "equal", "value": [(0, 0), (0, 0)]}})
-        else:
-            graph = self.get_proxy(atb_op.Graph, (rms_norm,
-                                                  linear,
-                                                  view,
-                                                  split,
-                                                  getitem,
-                                                  getitem,
-                                                  getitem_1,
-                                                  getitem_2,
-                                                  view_1,
-                                                  view_2,
-                                                  rope,
-                                                  getitem_3,
-                                                  getitem_4,
-                                                  view_3,
-                                                  view_4,
-                                                  view_5,
-                                                  view_6,
-                                                  fill_kv_cache,
-                                                  view_7,
-                                                  view_8,
-                                                  view_9,
-                                                  context_attention,
-                                                  view_10,
-                                                  linear_1,
-                                                  add,
-                                                  rms_norm_1,
-                                                  mlp_mm1,
-                                                  mlp_split,
-                                                  mlp_gate,
-                                                  mlp_up,
-                                                  mlp_act,
-                                                  mlp_mul,
-                                                  mlp,), {"output": [mlp, add]})
-                                                #   mlp,), {"output": [mlp, add], 'infer_shape': {"type": "equal", "value": [(0, 0), (0, 0)]}})
-        return self.get_proxy(atb_op.Tuple, (mlp, add))
+        add_1 = self.get_proxy(atb_op.Add, (mlp, add))
+        graph = self.get_proxy(atb_op.Graph, ( 
+                                              rms_norm,
+                                              linear,
+                                              split,
+                                              getitem,
+                                              getitem_1,
+                                              getitem_2,
+                                              rope,
+                                              getitem_3,
+                                              getitem_4,
+                                              fill_kv_cache,
+                                              context_attention,
+                                              linear_1,
+                                              add,
+                                              rms_norm_1,
+                                              mlp_mm1,
+                                              mlp_split,
+                                              mlp_gate,
+                                              mlp_up,
+                                              mlp_act,
+                                              mlp_mul,
+                                              mlp,
+                                              add_1
+                                              ), {"output": [add_1, mlp_gate, mlp_up, getitem, getitem_1, getitem_2]})
+        return add_1
 
     @register_conversion(torch.ops.atb.llama_prefill_and_norm.default)
     def atb_llama_prefill_and_norm(self,
                           hidden_states,
-                          residual,
                           rms_norm_1_gamma,
                           qkv_weight,
                           cos,
@@ -471,13 +519,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                           kv_num_heads,
                           head_size,
                           block_size):
-        first_add = False
-        if residual is None:
-            residual = hidden_states
-        else:
-            residual = self.get_proxy(atb_op.Add, (hidden_states, residual))
-            first_add = True
-        rms_norm = self.get_proxy(atb_op.RmsNorm, (residual, rms_norm_1_gamma, eps))
+        rms_norm = self.get_proxy(atb_op.RmsNorm, (hidden_states, rms_norm_1_gamma, eps))
         linear = self.get_proxy(atb_op.Linear, (rms_norm, qkv_weight, None, False, True))
         
         all_heads = q_num_heads + kv_num_heads + kv_num_heads
@@ -499,8 +541,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
         view_5 = self.get_proxy(atb_op.View, (k_cache, [-1, block_size, kv_num_heads, head_size]))
         view_6 = self.get_proxy(atb_op.View, (v_cache, [-1, block_size, kv_num_heads, head_size]))
         fill_kv_cache = self.get_proxy(atb_op.ReshapeAndCache, (view_4, getitem_2, view_5, view_6, kv_start_indices_1d))
-        inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
-        inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
+        inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, view_5, 0))
+        inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, view_6, 1))
         
         view_7 = self.get_proxy(atb_op.View, (view_3, [-1, q_num_heads * head_size]))
         view_8 = self.get_proxy(atb_op.View, (view_4, [-1, kv_num_heads * head_size]))
@@ -510,7 +552,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         view_10 = self.get_proxy(atb_op.View, (context_attention, [1, -1, q_num_heads * head_size]))
         linear_1 = self.get_proxy(atb_op.Linear, (view_10, o_weight, None, False, True))
 
-        add = self.get_proxy(atb_op.Add, (linear_1, residual))
+        add = self.get_proxy(atb_op.Add, (linear_1, hidden_states))
         rms_norm_1 = self.get_proxy(atb_op.RmsNorm, (add, rms_norm_2_gamma, eps))
 
         # input: rms_norm_1
@@ -524,88 +566,49 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
         add_1 = self.get_proxy(atb_op.Add, (mlp, add))
         rms_norm_2 = self.get_proxy(atb_op.RmsNorm, (add_1, rms_norm_3_gamma, eps))
-        if first_add:
-            graph = self.get_proxy(atb_op.Graph, (residual,
-                                                  rms_norm,
-                                                  linear,
-                                                  view,
-                                                  split,
-                                                  getitem,
-                                                  getitem,
-                                                  getitem_1,
-                                                  getitem_2,
-                                                  view_1,
-                                                  view_2,
-                                                  rope,
-                                                  getitem_3,
-                                                  getitem_4,
-                                                  view_3,
-                                                  view_4,
-                                                  view_5,
-                                                  view_6,
-                                                  fill_kv_cache,
-                                                  view_7,
-                                                  view_8,
-                                                  view_9,
-                                                  context_attention,
-                                                  view_10,
-                                                  linear_1,
-                                                  add,
-                                                  rms_norm_1,
-                                                  mlp_mm1,
-                                                  mlp_split,
-                                                  mlp_gate,
-                                                  mlp_up,
-                                                  mlp_act,
-                                                  mlp_mul,
-                                                  mlp,
-                                                  add_1,
-                                                  rms_norm_2), {"output": rms_norm_2, 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
-                                                #   rms_norm_2), {"output": rms_norm_2,})
-        else:
-            graph = self.get_proxy(atb_op.Graph, (rms_norm,
-                                                  linear,
-                                                  view,
-                                                  split,
-                                                  getitem,
-                                                  getitem,
-                                                  getitem_1,
-                                                  getitem_2,
-                                                  view_1,
-                                                  view_2,
-                                                  rope,
-                                                  getitem_3,
-                                                  getitem_4,
-                                                  view_3,
-                                                  view_4,
-                                                  view_5,
-                                                  view_6,
-                                                  fill_kv_cache,
-                                                  view_7,
-                                                  view_8,
-                                                  view_9,
-                                                  context_attention,
-                                                  view_10,
-                                                  linear_1,
-                                                  add,
-                                                  rms_norm_1,
-                                                  mlp_mm1,
-                                                  mlp_split,
-                                                  mlp_gate,
-                                                  mlp_up,
-                                                  mlp_act,
-                                                  mlp_mul,
-                                                  mlp,
-                                                  add_1,
-                                                  rms_norm_2), {"output": rms_norm_2})
-                                                #   rms_norm_2), {"output": rms_norm_2, 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
+
+        graph = self.get_proxy(atb_op.Graph, (rms_norm,
+                                              linear,
+                                              view,
+                                              split,
+                                              getitem,
+                                              getitem,
+                                              getitem_1,
+                                              getitem_2,
+                                              view_1,
+                                              view_2,
+                                              rope,
+                                              getitem_3,
+                                              getitem_4,
+                                              view_3,
+                                              view_4,
+                                              view_5,
+                                              view_6,
+                                              fill_kv_cache,
+                                              view_7,
+                                              view_8,
+                                              view_9,
+                                              context_attention,
+                                              view_10,
+                                              linear_1,
+                                              add,
+                                              rms_norm_1,
+                                              mlp_mm1,
+                                              mlp_split,
+                                              mlp_gate,
+                                              mlp_up,
+                                              mlp_act,
+                                              mlp_mul,
+                                              mlp,
+                                              add_1,
+                                              rms_norm_2), {"output": [rms_norm_2, mlp_gate, mlp_up, getitem, getitem_1, getitem_2]})
+                                            #   rms_norm_2), {"output": rms_norm_2, 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
         return rms_norm_2
 
 
     @register_conversion(torch.ops.atb.llama_decode.default)
     def atb_llama_decode(self,
                           hidden_states,
-                          residual,
                           rms_norm_1_gamma,
                           qkv_weight,
                           cos,
@@ -625,13 +628,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                           kv_num_heads,
                           head_size,
                           block_size):
-        first_add = False
-        if residual is None:
-            residual = hidden_states
-        else:
-            residual = self.get_proxy(atb_op.Add, (hidden_states, residual))
-            first_add = True
-        rms_norm = self.get_proxy(atb_op.RmsNorm, (residual, rms_norm_1_gamma, eps))
+        rms_norm = self.get_proxy(atb_op.RmsNorm, (hidden_states, rms_norm_1_gamma, eps))
         linear = self.get_proxy(atb_op.Linear, (rms_norm, qkv_weight, None, False, True))
         
         all_heads = q_num_heads + kv_num_heads + kv_num_heads
@@ -640,21 +637,21 @@ class AtenToAtbTransformer(SingleOpTransformer):
         getitem = self.get_proxy(atb_op.GetItem, (split, 0))
         getitem_1 = self.get_proxy(atb_op.GetItem, (split, 1))
         getitem_2 = self.get_proxy(atb_op.GetItem, (split, 2))
-        
+
         view_1 = self.get_proxy(atb_op.View, (getitem, [-1, q_num_heads * head_size]))
-        view_2 = self.get_proxy(atb_op.View, (getitem_1, [-1, q_num_heads * head_size]))
+        view_2 = self.get_proxy(atb_op.View, (getitem_1, [-1, kv_num_heads * head_size]))
         rope = self.get_proxy(atb_op.Rope, (view_1, view_2, cos, sin, kv_seqlens_int))
         getitem_3 = self.get_proxy(atb_op.GetItem, (rope, 0))
         getitem_4 = self.get_proxy(atb_op.GetItem, (rope, 1))
-        
+
         view_3 = self.get_proxy(atb_op.View, (getitem_3, [-1, q_num_heads, head_size]))
         view_4 = self.get_proxy(atb_op.View, (getitem_4, [-1, kv_num_heads, head_size]))
         
         view_5 = self.get_proxy(atb_op.View, (k_cache, [-1, block_size, kv_num_heads, head_size]))
         view_6 = self.get_proxy(atb_op.View, (v_cache, [-1, block_size, kv_num_heads, head_size]))
         fill_kv_cache = self.get_proxy(atb_op.ReshapeAndCache, (view_4, getitem_2, view_5, view_6, kv_start_indices_1d))
-        inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
-        inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
+        inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, view_5, 0))
+        inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, view_6, 1))
         
         scale = 1. / math.sqrt(head_size)
         paged_attention = self.get_proxy(atb_op.PagedAttention, (view_3, view_5, view_6, block_offsets, kv_seqlens_int, mask, q_num_heads, kv_num_heads, scale))
@@ -662,8 +659,9 @@ class AtenToAtbTransformer(SingleOpTransformer):
         view_10 = self.get_proxy(atb_op.View, (paged_attention, [1, -1, q_num_heads * head_size]))
         linear_1 = self.get_proxy(atb_op.Linear, (view_10, o_weight, None, False, True))
 
-        add = self.get_proxy(atb_op.Add, (linear_1, residual))
+        add = self.get_proxy(atb_op.Add, (linear_1, hidden_states))
         rms_norm_1 = self.get_proxy(atb_op.RmsNorm, (add, rms_norm_2_gamma, eps))
+
 
         # input: rms_norm_1
         mlp_mm1 = self.get_proxy(atb_op.Linear, (rms_norm_1, gate_up, None, False, True))
@@ -673,78 +671,56 @@ class AtenToAtbTransformer(SingleOpTransformer):
         mlp_act = self.get_proxy(atb_op.Swish, (mlp_gate,))
         mlp_mul = self.get_proxy(atb_op.Mul, (mlp_act, mlp_up))
         mlp = self.get_proxy(atb_op.Linear, (mlp_mul, down, None, False, True))
+        add_1 = self.get_proxy(atb_op.Add, (mlp, add))
 
-        if first_add:
-            graph = self.get_proxy(atb_op.Graph, (residual,
-                                                  rms_norm,
-                                                  linear,
-                                                  view,
-                                                  split,
-                                                  getitem,
-                                                  getitem,
-                                                  getitem_1,
-                                                  getitem_2,
-                                                  view_1,
-                                                  view_2,
-                                                  rope,
-                                                  getitem_3,
-                                                  getitem_4,
-                                                  view_3,
-                                                  view_4,
-                                                  view_5,
-                                                  view_6,
-                                                  fill_kv_cache,
-                                                  paged_attention,
-                                                  view_10,
-                                                  linear_1,
-                                                  add,
-                                                  rms_norm_1,
-                                                  mlp_mm1,
-                                                  mlp_split,
-                                                  mlp_gate,
-                                                  mlp_up,
-                                                  mlp_act,
-                                                  mlp_mul,
-                                                  mlp,), {"output": [mlp, add]})
-                                                #   mlp,), {"output": [mlp, add], 'infer_shape': {"type": "equal", "value": [(0, 0), (0, 0)]}})
-        else:
-            graph = self.get_proxy(atb_op.Graph, (rms_norm,
-                                                  linear,
-                                                  view,
-                                                  split,
-                                                  getitem,
-                                                  getitem,
-                                                  getitem_1,
-                                                  getitem_2,
-                                                  view_1,
-                                                  view_2,
-                                                  rope,
-                                                  getitem_3,
-                                                  getitem_4,
-                                                  view_3,
-                                                  view_4,
-                                                  view_5,
-                                                  view_6,
-                                                  fill_kv_cache,
-                                                  paged_attention,
-                                                  view_10,
-                                                  linear_1,
-                                                  add,
-                                                  rms_norm_1,
-                                                  mlp_mm1,
-                                                  mlp_split,
-                                                  mlp_gate,
-                                                  mlp_up,
-                                                  mlp_act,
-                                                  mlp_mul,
-                                                  mlp,), {"output": [mlp, add]})
-                                                #   mlp,), {"output": [mlp, add], 'infer_shape': {"type": "equal", "value": [(0, 0), (0, 0)]}})
-        return self.get_proxy(atb_op.Tuple, (mlp, add))
+        graph = self.get_proxy(atb_op.Graph, ( 
+                                              rms_norm,
+                                              linear,
+                                              split,
+                                              getitem,
+                                              getitem_1,
+                                              getitem_2,
+                                              rope,
+                                              getitem_3,
+                                              getitem_4,
+                                              fill_kv_cache,
+                                              paged_attention,
+                                              linear_1,
+                                              add,
+                                              rms_norm_1,
+                                              mlp_mm1,
+                                              mlp_split,
+                                              mlp_gate,
+                                              mlp_up,
+                                              mlp_act,
+                                              mlp_mul,
+                                              mlp,
+                                              add_1
+                                              ), {"output": [
+                                                #   linear,
+                                                    # paged_attention,
+                                                    # getitem,
+                                                    # getitem_1,
+                                                    # getitem_2,
+                                                    # getitem_3,
+                                                    # getitem_4,
+
+                                                    # mlp_mm1,
+                                                    # mlp_gate,
+                                                    # mlp_up,
+                                                    # mlp_act,
+                                                    # mlp_mul,
+                                                    # mlp,
+                                                    add_1,
+                                                    ]})
+
+
+
+        return add_1
 
     @register_conversion(torch.ops.atb.llama_decode_and_norm.default)
     def atb_llama_decode_and_norm(self,
                           hidden_states,
-                          residual,
                           rms_norm_1_gamma,
                           qkv_weight,
                           cos,
@@ -765,13 +741,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                           kv_num_heads,
                           head_size,
                           block_size):
-        first_add = False
-        if residual is None:
-            residual = hidden_states
-        else:
-            residual = self.get_proxy(atb_op.Add, (hidden_states, residual))
-            first_add = True
-        rms_norm = self.get_proxy(atb_op.RmsNorm, (residual, rms_norm_1_gamma, eps))
+        rms_norm = self.get_proxy(atb_op.RmsNorm, (hidden_states, rms_norm_1_gamma, eps))
         linear = self.get_proxy(atb_op.Linear, (rms_norm, qkv_weight, None, False, True))
         
         all_heads = q_num_heads + kv_num_heads + kv_num_heads
@@ -793,8 +763,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
         view_5 = self.get_proxy(atb_op.View, (k_cache, [-1, block_size, kv_num_heads, head_size]))
         view_6 = self.get_proxy(atb_op.View, (v_cache, [-1, block_size, kv_num_heads, head_size]))
         fill_kv_cache = self.get_proxy(atb_op.ReshapeAndCache, (view_4, getitem_2, view_5, view_6, kv_start_indices_1d))
-        inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, k_cache, 0))
-        inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, v_cache, 1))
+        inplace1 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, view_5, 0))
+        inplace2 = self.get_proxy(atb_op.Inplace, (fill_kv_cache, view_6, 1))
         
         scale = 1. / math.sqrt(head_size)
         paged_attention = self.get_proxy(atb_op.PagedAttention, (view_3, view_5, view_6, block_offsets, kv_seqlens_int, mask, q_num_heads, kv_num_heads, scale))
@@ -802,7 +772,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         view_10 = self.get_proxy(atb_op.View, (paged_attention, [1, -1, q_num_heads * head_size]))
         linear_1 = self.get_proxy(atb_op.Linear, (view_10, o_weight, None, False, True))
 
-        add = self.get_proxy(atb_op.Add, (linear_1, residual))
+        add = self.get_proxy(atb_op.Add, (linear_1, hidden_states))
         rms_norm_1 = self.get_proxy(atb_op.RmsNorm, (add, rms_norm_2_gamma, eps))
 
         # input: rms_norm_1
@@ -816,75 +786,33 @@ class AtenToAtbTransformer(SingleOpTransformer):
 
         add_1 = self.get_proxy(atb_op.Add, (mlp, add))
         rms_norm_2 = self.get_proxy(atb_op.RmsNorm, (add_1, rms_norm_3_gamma, eps))
-        if first_add:
-            graph = self.get_proxy(atb_op.Graph, (residual,
-                                                  rms_norm,
-                                                  linear,
-                                                  view,
-                                                  split,
-                                                  getitem,
-                                                  getitem,
-                                                  getitem_1,
-                                                  getitem_2,
-                                                  view_1,
-                                                  view_2,
-                                                  rope,
-                                                  getitem_3,
-                                                  getitem_4,
-                                                  view_3,
-                                                  view_4,
-                                                  view_5,
-                                                  view_6,
-                                                  fill_kv_cache,
-                                                  paged_attention,
-                                                  view_10,
-                                                  linear_1,
-                                                  add,
-                                                  rms_norm_1,
-                                                  mlp_mm1,
-                                                  mlp_split,
-                                                  mlp_gate,
-                                                  mlp_up,
-                                                  mlp_act,
-                                                  mlp_mul,
-                                                  mlp,
-                                                  add_1,
-                                                  rms_norm_2), {"output": rms_norm_2})
-                                                #   rms_norm_2), {"output": rms_norm_2, 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
-        else:
-            graph = self.get_proxy(atb_op.Graph, (rms_norm,
-                                                  linear,
-                                                  view,
-                                                  split,
-                                                  getitem,
-                                                  getitem,
-                                                  getitem_1,
-                                                  getitem_2,
-                                                  view_1,
-                                                  view_2,
-                                                  rope,
-                                                  getitem_3,
-                                                  getitem_4,
-                                                  view_3,
-                                                  view_4,
-                                                  view_5,
-                                                  view_6,
-                                                  fill_kv_cache,
-                                                  paged_attention,
-                                                  view_10,
-                                                  linear_1,
-                                                  add,
-                                                  rms_norm_1,
-                                                  mlp_mm1,
-                                                  mlp_split,
-                                                  mlp_gate,
-                                                  mlp_up,
-                                                  mlp_act,
-                                                  mlp_mul,
-                                                  mlp,
-                                                  add_1,
-                                                  rms_norm_2), {"output": rms_norm_2})
-                                                #   rms_norm_2), {"output": rms_norm_2, 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
+        graph = self.get_proxy(atb_op.Graph, (rms_norm,
+                                              linear,
+                                              view,
+                                              split,
+                                              getitem,
+                                              getitem,
+                                              getitem_1,
+                                              getitem_2,
+                                              rope,
+                                              getitem_3,
+                                              getitem_4,
+                                              fill_kv_cache,
+                                              paged_attention,
+                                              view_10,
+                                              linear_1,
+                                              add,
+                                              rms_norm_1,
+                                              mlp_mm1,
+                                              mlp_split,
+                                              mlp_gate,
+                                              mlp_up,
+                                              mlp_act,
+                                              mlp_mul,
+                                              mlp,
+                                              add_1,
+                                              rms_norm_2), {"output": [rms_norm_2,]})
+                                            #   rms_norm_2), {"output": rms_norm_2, 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
         return rms_norm_2
 
 

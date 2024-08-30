@@ -280,11 +280,11 @@ def parse_graph(graph,
         node = graph.nodes[name]
         if node.op_type == "inplaceOperation":
             if node.input_index != -1:
-                inplace_replace[node.outputs[0]] = f'{node.inputs[0]}_{node.input_index}'
+                inplace_replace[node.outputs[0]] = f'{node.inputs[0]}__{node.input_index}'
             else:
                 inplace_replace[node.outputs[0]] = node.inputs[0]
             if node.target_index != -1:
-                inplace_tensor_to_real_tensor[inplace_replace[node.outputs[0]]] = f'{node.target}_{node.target_index}'
+                inplace_tensor_to_real_tensor[inplace_replace[node.outputs[0]]] = f'{node.target}__{node.target_index}'
             else:
                 inplace_tensor_to_real_tensor[inplace_replace[node.outputs[0]]] = node.target
             del graph.nodes[name]
@@ -309,7 +309,7 @@ def parse_graph(graph,
         if node.op_type == "tupleOperation":
             op_name = node.op_name
             for idx, input in enumerate(node.inputs):
-                key_name = f'{op_name}_{idx}'
+                key_name = f'{op_name}__{idx}'
                 tuple_replace[key_name] = input
             del graph.nodes[name]
 
@@ -318,7 +318,7 @@ def parse_graph(graph,
     for name in list(graph.nodes.keys()):
         node = graph.nodes[name]
         if node.op_type == "getitemOperation":
-            real_name = f'{node.inputs[0]}_{node.index}'
+            real_name = f'{node.inputs[0]}__{node.index}'
             if real_name in tuple_replace.keys():
                 real_name = tuple_replace[real_name]
             getitem_replace[node.outputs[0]] = real_name
@@ -374,7 +374,10 @@ def parse_graph(graph,
                     while target_name in view_replace.keys():
                         input = target_name
                         target_name = view_replace[target_name].inputs[0]
-                    node.outputs[idx] = target_name                    
+                    node.outputs[idx] = target_name             
+    view_replace_name_dict = {}
+    for k, v in view_replace.items():
+        view_replace_name_dict[k] = v.inputs[0]
 
     # graph operation
     graph_nodes = []
@@ -406,12 +409,22 @@ def parse_graph(graph,
 
         graph_inputs = [x for x in graph_inputs if x not in graph_outputs]
         for k, v in inplace_tensor_to_real_tensor.items():
-            if v in graph_inputs and k not in graph_node.outputs:
+            v_in_input = v in graph_inputs
+            if not v_in_input:
+                while v in view_replace_name_dict.keys() and not v_in_input:
+                    v = view_replace_name_dict[v]
+                    v_in_input = v in graph_inputs
+            if v_in_input and k not in graph_node.outputs:
                 graph_node.outputs.append(k)
+
         graph_internals = [x for x in graph_outputs if x not in graph_inputs and x not in graph_node.outputs]
 
         graph_node.set_inputs(graph_inputs)
-        graph_node.set_internals(graph_internals)
+        # graph_node.set_internals(graph_internals)
+        graph_node.set_internals([])
+        # import pdb;pdb.set_trace()
+        graph_internals.extend(graph_node.outputs)
+        graph_node.set_outputs(list(set(graph_internals)))
         graph_node.node_names = list(graph_node.nodes.keys())
         if graph_node.has_infer_shape:
             infer_shape = []

@@ -18,9 +18,9 @@ def atbgraph_opset_convert(
 ):
     # gm.print_readable()
     # import pdb;pdb.set_trace()
-    # gm = BackendPatternMatcherTransformer(
-    #     atb_pattern_matcher, torch_patterns_cls_list_3).transform(gm)
-    # gm.print_readable()
+    gm = BackendPatternMatcherTransformer(
+        atb_pattern_matcher, torch_patterns_cls_list_3).transform(gm)
+    gm.print_readable()
     # import pdb;pdb.set_trace()
 
     # gm = BackendPatternMatcherTransformer(
