@@ -420,11 +420,11 @@ def parse_graph(graph,
         graph_internals = [x for x in graph_outputs if x not in graph_inputs and x not in graph_node.outputs]
 
         graph_node.set_inputs(graph_inputs)
-        # graph_node.set_internals(graph_internals)
-        graph_node.set_internals([])
-        # import pdb;pdb.set_trace()
-        graph_internals.extend(graph_node.outputs)
-        graph_node.set_outputs(list(set(graph_internals)))
+        graph_node.set_internals(graph_internals)
+        # graph_node.set_internals([])
+        # # import pdb;pdb.set_trace()
+        # graph_internals.extend(graph_node.outputs)
+        # graph_node.set_outputs(list(set(graph_internals)))
         graph_node.node_names = list(graph_node.nodes.keys())
         if graph_node.has_infer_shape:
             infer_shape = []
@@ -508,19 +508,9 @@ def parse_graph(graph,
                                                   inplace_tensor_to_real_tensor,
                                                   inplace_tensor_with_reshape)
 
-    # print()
-    # for name, node in graph.nodes.items():
-    #     print('node_name: ', name)
-    #     print('inputs: ', node['value']['inputNames'])
-    #     print('outputs: ', node['value']['outputNames'])
-    #     print()
-
     for idx, tensor in enumerate(py_output_names):
         if tensor in getitem_replace.keys():
             py_output_names[idx] = getitem_replace[tensor]
-
-    # import pdb;pdb.set_trace()
-    # pass
 
     return graph, output_tensor_descs, py_output_names
 

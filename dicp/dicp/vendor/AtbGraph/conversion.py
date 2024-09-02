@@ -494,7 +494,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                                               mlp_mul,
                                               mlp,
                                               add_1
-                                              ), {"output": [add_1, mlp_gate, mlp_up, getitem, getitem_1, getitem_2]})
+                                              ), {"output": [add_1,]})
         return add_1
 
     @register_conversion(torch.ops.atb.llama_prefill_and_norm.default)
@@ -601,7 +601,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                                               mlp_mul,
                                               mlp,
                                               add_1,
-                                              rms_norm_2), {"output": [rms_norm_2, mlp_gate, mlp_up, getitem, getitem_1, getitem_2]})
+                                              rms_norm_2), {"output": [rms_norm_2,]})
                                             #   rms_norm_2), {"output": rms_norm_2, 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
         return rms_norm_2
 
