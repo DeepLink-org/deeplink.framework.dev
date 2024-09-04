@@ -1,15 +1,17 @@
 #ifndef __PCCL_API_H__
 #define __PCCL_API_H__
+#include <dlfcn.h>      // For dlsym, dlopen, dlerror
+#include <stdexcept>    // For std::runtime_error
+#include <string>       // For std::string
+#include <iostream>
 
-#include <stdexcept>
-#include <dlfcn.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+
 #include "tang_rt/driver_types.h"
 
-#define PCCL_BUF_SIZE       (0x800000)
 
 #define PCCL_UNIQUE_ID_BYTES 128
 typedef struct {
@@ -33,51 +35,6 @@ typedef enum {
     pccl_NUM_RESULTS
 } pcclResult_t;
 
-inline void* getOpApiFuncAddrInLib(void* handler, const char* libName, const char* apiName) {
-    void* funcAddr = dlsym(handler, apiName);
-    if (funcAddr == nullptr) {
-        warning(__FILE__, __LINE__, __FUNCTION__, "dlsym %s from %s failed, error:%s.", apiName, libName, dlerror());
-    }
-    return funcAddr;
-}
-
-inline void* getOpApiLibHandler(const char* libName) {
-    auto handler = dlopen(libName, RTLD_LAZY);
-    if (handler == nullptr) {
-        warning(__FILE__, __LINE__, __FUNCTION__, "dlopen %s failed, error:%s.", libName, dlerror());
-    }
-    return handler;
-}
-
-inline void* getOpApiFuncAddr(const char* apiName) {
-    constexpr const char kOpApiLibName[] = "libpccl.so";
-    static void* opApiHandler = getOpApiLibHandler(kOpApiLibName);
-    if (opApiHandler == nullptr) {
-        return nullptr;
-    }
-    return getOpApiFuncAddrInLib(opApiHandler, kOpApiLibName, apiName);
-}
-
-template <const char* workspaceApi, typename... Args>
-int callPcclImpl(Args... args) {
-    static const auto workspaceSizeFuncAddr = getOpApiFuncAddr(workspaceApi);
-    using WorkspaceSizeFunc = int (*)(Args...);
-    static WorkspaceSizeFunc workspaceSizeFunc = reinterpret_cast<WorkspaceSizeFunc>(workspaceSizeFuncAddr);
-    auto workspaceStatus = workspaceSizeFunc(args...);
-    if (workspaceStatus != pcclSuccess) {
-        throw std::runtime_error(
-            std::string("[") + workspaceApi + "]'s return value is not equal to PCCL_SUCCESS. pcclStatus is " + std::to_string(workspaceStatus)
-        );
-    }
-    return workspaceStatus;
-}
-
-#define DIPU_CALL_PCCL(api, ...)                                                                    \
-    do {                                                                                                          \
-        static constexpr const char kApiName[] = #api;                                                            \
-        callPcclImpl<kApiName>(__VA_ARGS__); \
-    } while (false);
-#endif  // IMPL_ASCEND_ACLNN_ADAPTOR_HPP_
 /* description  : Generates a unique Id with each call
  * input        : pcclUniqueId type pointer
  * output       : 0:pcclSuccess, other failure
@@ -298,5 +255,52 @@ pcclResult_t pcclGroupEnd(void);
 #ifdef __cplusplus
 }
 #endif
+
+inline void* getOpApiFuncAddrInLib(void* handler, const char* libName, const char* apiName) {
+    void* funcAddr = dlsym(handler, apiName);
+    if (funcAddr == nullptr) {
+        std::cerr << "Warning: [" << __FILE__ << ":" << __LINE__ << "] " << __FUNCTION__ 
+                  << ": dlsym " << apiName << " from " << libName << " failed, error: " << dlerror() << std::endl;
+    }
+    return funcAddr;
+}
+
+inline void* getOpApiLibHandler(const char* libName) {
+    auto handler = dlopen(libName, RTLD_LAZY);
+    if (handler == nullptr) {
+    std::cerr << "Warning: " << __FILE__ << ":" << __LINE__ << " " << __FUNCTION__ 
+          << " dlopen " << libName << " failed, error:" << dlerror() << std::endl;
+    }
+    return handler;
+}
+
+inline void* getOpApiFuncAddr(const char* apiName) {
+    constexpr const char kOpApiLibName[] = "libpccl.so";
+    static void* opApiHandler = getOpApiLibHandler(kOpApiLibName);
+    if (opApiHandler == nullptr) {
+        return nullptr;
+    }
+    return getOpApiFuncAddrInLib(opApiHandler, kOpApiLibName, apiName);
+}
+
+template <const char* workspaceApi, typename... Args>
+int callPcclImpl(Args... args) {
+    static const auto workspaceSizeFuncAddr = getOpApiFuncAddr(workspaceApi);
+    using WorkspaceSizeFunc = int (*)(Args...);
+    static WorkspaceSizeFunc workspaceSizeFunc = reinterpret_cast<WorkspaceSizeFunc>(workspaceSizeFuncAddr);
+    auto workspaceStatus = workspaceSizeFunc(args...);
+    if (workspaceStatus != pcclSuccess) {
+        throw std::runtime_error(
+            std::string("[") + workspaceApi + "]'s return value is not equal to PCCL_SUCCESS. pcclStatus is " + std::to_string(workspaceStatus)
+        );
+    }
+    return workspaceStatus;
+}
+
+#define DIPU_CALL_PCCL(api, ...)                                                                    \
+    do {                                                                                                          \
+        static constexpr const char kApiName[] = #api;                                                            \
+        callPcclImpl<kApiName>(__VA_ARGS__); \
+    } while (false);
 
 #endif //end __PCCL_API_H__
