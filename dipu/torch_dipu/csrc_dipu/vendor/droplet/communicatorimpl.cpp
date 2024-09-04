@@ -1,6 +1,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <dlfcn.h>
 
 #include <c10/core/ScalarType.h>
 

@@ -1,8 +1,6 @@
 #ifndef __PCCL_API_H__
 #define __PCCL_API_H__
 
-#include <stdexcept>
-#include <dlfcn.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -58,26 +56,19 @@ inline void* getOpApiFuncAddr(const char* apiName) {
     return getOpApiFuncAddrInLib(opApiHandler, kOpApiLibName, apiName);
 }
 
-template <const char* workspaceApi, typename... Args>
-int callPcclImpl(Args... args) {
+template <const char* workspaceApi, typename... Args, std::enable_if_t<std::conjunction_v<IsAclnnBuildInType<Args>...>, void*> = nullptr>
+static std::pair<uint64_t, aclOpExecutor*> computeWorkspaceSize(const std::tuple<Args...>& tupleArgs) {
     static const auto workspaceSizeFuncAddr = getOpApiFuncAddr(workspaceApi);
-    using WorkspaceSizeFunc = int (*)(Args...);
+    using WorkspaceSizeFunc = int (*)(Args..., uint64_t*, aclOpExecutor**);
     static WorkspaceSizeFunc workspaceSizeFunc = reinterpret_cast<WorkspaceSizeFunc>(workspaceSizeFuncAddr);
-    auto workspaceStatus = workspaceSizeFunc(args...);
-    if (workspaceStatus != pcclSuccess) {
-        throw std::runtime_error(
-            std::string("[") + workspaceApi + "]'s return value is not equal to PCCL_SUCCESS. pcclStatus is " + std::to_string(workspaceStatus)
-        );
-    }
-    return workspaceStatus;
+    uint64_t workspaceSize = 0;
+    aclOpExecutor* executor = nullptr;
+    auto tupleWorkspaceSizeFuncArgs = std::tuple_cat(tupleArgs, std::make_tuple(&workspaceSize, &executor));
+    auto workspaceStatus = std::apply(workspaceSizeFunc, std::move(tupleWorkspaceSizeFuncArgs));
+    ASCEND_CHECK_THROW(workspaceStatus == ACL_SUCCESS, "[%s]'s return value is not equal to ACL_SUCCESS. aclnnStatus is %d.", workspaceApi, workspaceStatus);
+    return {workspaceSize, executor};
 }
 
-#define DIPU_CALL_PCCL(api, ...)                                                                    \
-    do {                                                                                                          \
-        static constexpr const char kApiName[] = #api;                                                            \
-        callPcclImpl<kApiName>(__VA_ARGS__); \
-    } while (false);
-#endif  // IMPL_ASCEND_ACLNN_ADAPTOR_HPP_
 /* description  : Generates a unique Id with each call
  * input        : pcclUniqueId type pointer
  * output       : 0:pcclSuccess, other failure

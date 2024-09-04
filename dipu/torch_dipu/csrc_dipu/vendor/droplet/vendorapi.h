@@ -3,7 +3,7 @@
 
 #include <c10/util/Exception.h>
 #ifdef USE_PCCL
-#include <pccl.h>
+#include "pccl.h"
 #endif  // USE_PCCL
 #include <tang_runtime.h>
 
