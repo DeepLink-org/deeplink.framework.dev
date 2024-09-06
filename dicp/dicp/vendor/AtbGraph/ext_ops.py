@@ -50,6 +50,23 @@ def add_abstract(a, b,):
 def add_impl(a, b, bias, trans_a, trans_b):
     return a + b
 
+
+# atb mm
+@torch._custom_op.impl.custom_op('atb::bmm')
+def bmm(a: Tensor, b: Tensor) -> Tensor:
+    ...
+
+
+@bmm.impl_abstract()
+def bmm_abstract(a, b,):
+    return a @ b
+
+
+@bmm.impl(['cpu', 'cuda'])
+def bmm_impl(a, b, bias, trans_a, trans_b):
+    return a @ b
+
+
 # atb fused_mm_mm_add
 @torch._custom_op.impl.custom_op('atb::fused_mm_mm_add')
 def fused_mm_mm_add(a: Tensor, b: Tensor, c: Tensor, d: Tensor) -> Tensor:

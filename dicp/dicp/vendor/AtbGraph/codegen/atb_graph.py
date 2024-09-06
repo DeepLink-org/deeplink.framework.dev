@@ -99,6 +99,17 @@ class ViewOperation(Operation):
         self.target_shape = []
         self.target_reshape_info = {}
 
+class UnsqueezeOperation(Operation):
+    def __init__(self, name):
+        super().__init__(name, "unsqueezeOperation")
+        self.dim = []
+        self.target_reshape_info = {}
+
+class SqueezeOperation(Operation):
+    def __init__(self, name):
+        super().__init__(name, "squeezeOperation")
+        self.dim = []
+        self.target_reshape_info = {}
 
 class GraphOpearation(Operation):
     def __init__(self, name: str):
@@ -337,12 +348,20 @@ def parse_graph(graph,
         if output in getitem_replace.keys():
             output_names[idx] = getitem_replace[output]
 
-    # view replace
+    # view/unsqueeze/squeeze replace
     view_replace = {}
+    unsqueeze_replace = {}
+    squeeze_replace = {}
     for name in list(graph.nodes.keys()):
         node = graph.nodes[name]
         if node.op_type == "viewOperation":
             view_replace[node.op_name] = node
+            del graph.nodes[name]
+        elif node.op_type == "unsqueezeOperation":
+            unsqueeze_replace[node.op_name] = node
+            del graph.nodes[name]
+        elif node.op_type == "squeezeOperation":
+            squeeze_replace[node.op_name] = node
             del graph.nodes[name]
     for name in graph.nodes.keys():
         node = graph.nodes[name]
@@ -359,6 +378,29 @@ def parse_graph(graph,
                     node.inputs[idx] = target_name
                     reshape_inputs[idx] = reshape_info
                     need_reshape_input = True
+                elif input in unsqueeze_replace.keys():
+                    reshape_info = unsqueeze_replace[input].target_reshape_info
+                    target_name = unsqueeze_replace[input].inputs[0]
+                    while target_name in unsqueeze_replace.keys():
+                        input = target_name
+                        target_name = unsqueeze_replace[target_name].inputs[0]
+                        reshape_info["dim"].extend(unsqueeze_replace[target_name].target_reshape_info["dim"])
+                    reshape_info["dim"] = list(reversed(reshape_info["dim"]))
+                    node.inputs[idx] = target_name
+                    reshape_inputs[idx] = reshape_info
+                    need_reshape_input = True
+                elif input in squeeze_replace.keys():
+                    reshape_info = squeeze_replace[input].target_reshape_info
+                    target_name = squeeze_replace[input].inputs[0]
+                    while target_name in squeeze_replace.keys():
+                        input = target_name
+                        target_name = squeeze_replace[target_name].inputs[0]
+                        reshape_info["dim"].extend(squeeze_replace[target_name].target_reshape_info["dim"])
+                    reshape_info["dim"] = list(reversed(reshape_info["dim"]))
+                    node.inputs[idx] = target_name
+                    reshape_inputs[idx] = reshape_info
+                    need_reshape_input = True
+                    
             node.has_reshape_inputs = need_reshape_input
             node.reshape_inputs = []
             if need_reshape_input:
@@ -374,7 +416,19 @@ def parse_graph(graph,
                     while target_name in view_replace.keys():
                         input = target_name
                         target_name = view_replace[target_name].inputs[0]
-                    node.outputs[idx] = target_name             
+                    node.outputs[idx] = target_name
+                elif output in unsqueeze_replace.keys():
+                    target_name = unsqueeze_replace[input].inputs[0]
+                    while target_name in unsqueeze_replace.keys():
+                        input = target_name
+                        target_name = unsqueeze_replace[target_name].inputs[0]
+                    node.outputs[idx] = target_name
+                elif output in squeeze_replace.keys():
+                    target_name = squeeze_replace[input].inputs[0]
+                    while target_name in squeeze_replace.keys():
+                        input = target_name
+                        target_name = squeeze_replace[target_name].inputs[0]
+                    node.outputs[idx] = target_name
     view_replace_name_dict = {}
     for k, v in view_replace.items():
         view_replace_name_dict[k] = v.inputs[0]

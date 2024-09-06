@@ -249,6 +249,42 @@ class AtenToAtbTransformer(SingleOpTransformer):
         import pdb;pdb.set_trace()
         pass
 
+    @register_conversion(torch.ops.aten._to_copy.default)
+    def to_copy(self, x, dtype=None, layout=None, device=None):
+        assert layout is None
+        assert device is None
+        if dtype is not None:
+            return self.get_proxy(atb_op.Cast, (x, dtype))
+        raise RuntimeError('not support yet!')
+
+    @register_conversion(torch.ops.aten.sin.default)
+    def sin(self, x):
+        return self.get_proxy(atb_op.Sin, (x,))
+
+    @register_conversion(torch.ops.aten.cos.default)
+    def cos(self, x):
+        return self.get_proxy(atb_op.Cos, (x,))
+
+    @register_conversion(torch.ops.aten.cat.default)
+    def cat(self, x, dim):
+        return self.get_proxy(atb_op.Concat, (x, dim))
+
+    @register_conversion(torch.ops.atb.bmm.default)
+    def bmm(self, x1, x2):
+        out = self.get_proxy(atb_op.BatchMatMul, (x1, x2))
+        return out
+
+    @register_conversion(torch.ops.aten.transpose.int)
+    def transpose_int(self, input, dim_1, dim_2):
+        shape = fx_traceback.get_current_meta()['val'].shape
+        permute_shape = [i for i in range(len(shape))]
+        permute_shape[dim_1], permute_shape[dim_2] = permute_shape[dim_2], permute_shape[dim_1]
+        return self.get_proxy(atb_op.Transpose, (input, permute_shape))
+
+    @register_conversion(torch.ops.aten.embedding.default)
+    def embedding(self, weight, indices, axis):
+        return self.get_proxy(atb_op.Gather, (weight, indices, axis))
+
     @register_conversion(torch.ops.atb.atb_context_attention.default)
     def atb_context_attention(self, query,
                                       key,
@@ -494,7 +530,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                                               mlp_mul,
                                               mlp,
                                               add_1
-                                              ), {"output": [add_1,]})
+                                              ), {"output": [add_1,], 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
         return add_1
 
     @register_conversion(torch.ops.atb.llama_prefill_and_norm.default)
@@ -601,7 +637,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                                               mlp_mul,
                                               mlp,
                                               add_1,
-                                              rms_norm_2), {"output": [rms_norm_2,]})
+                                              rms_norm_2), {"output": [rms_norm_2,], 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
                                             #   rms_norm_2), {"output": rms_norm_2, 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
         return rms_norm_2
 
@@ -712,7 +748,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
                                                     # mlp_mul,
                                                     # mlp,
                                                     add_1,
-                                                    ]})
+                                                    ], 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
 
 
 
@@ -811,8 +847,14 @@ class AtenToAtbTransformer(SingleOpTransformer):
                                               mlp_mul,
                                               mlp,
                                               add_1,
-                                              rms_norm_2), {"output": [rms_norm_2,]})
+                                              rms_norm_2), {"output": [rms_norm_2,], 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
                                             #   rms_norm_2), {"output": rms_norm_2, 'infer_shape': {"type": "equal", "value": [(0, 0)]}})
         return rms_norm_2
 
+    @register_conversion(torch.ops.aten.unsqueeze.default)
+    def unsqueeze(self, x, dim):
+        return self.get_proxy(atb_op.Unsqueeze, (x, dim))
 
+    @register_conversion(torch.ops.aten.squeeze.dim)
+    def squeeze(self, x, dim):
+        return self.get_proxy(atb_op.Squeeze, (x, dim))

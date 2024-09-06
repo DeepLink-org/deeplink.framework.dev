@@ -273,12 +273,17 @@ class AtbCodegen(torch.fx.Interpreter):
                 input = create_info['input']
                 call_body.writeline(f'''{output} = {input}''')
 
+        call_body.writeline(f'''host_tensor_dict = {{}}''')
+        host_tensors = []
         for tensor in self.atb_graph.hosts:
             node_id = tensor["nodeId"]
             tensor_id = tensor["tensorId"]
             tensor_name = tensor["tensorName"]
             assert tensor_name in self.args
-            call_body.writeline(f'''output_tensor_descs["hostTensors"].append({{"nodeId": {node_id}, "tensorId": {tensor_id}, "value": {tensor_name}.cpu().tolist() }})''')
+            if tensor_name not in host_tensors:
+                call_body.writeline(f'''host_tensor_dict["{tensor_name}"] = {tensor_name}.cpu().tolist()''')
+                host_tensors.append(tensor_name)
+            call_body.writeline(f'''output_tensor_descs["hostTensors"].append({{"nodeId": {node_id}, "tensorId": {tensor_id}, "value": host_tensor_dict["{tensor_name}"] }})''')
 
         call_body.writeline('''output_tensor_descs_string = json.dumps(output_tensor_descs)''')
         call_body.writeline('''output_shape = output_tensor_descs_string ''')

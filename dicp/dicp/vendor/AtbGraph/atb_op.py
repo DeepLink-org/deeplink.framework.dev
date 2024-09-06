@@ -149,6 +149,20 @@ class View(Operator):
     def infer_result(self, x, size):
         return x.view(size)
 
+class Unsqueeze(Operator):
+    def __init__(self):
+        super().__init__("Unsqueeze")
+    
+    def infer_result(self, x, dim):
+        return x.unsqueeze(dim)
+
+class Squeeze(Operator):
+    def __init__(self):
+        super().__init__("Squeeze")
+    
+    def infer_result(self, x, dim):
+        return x.squeeze(dim)
+
 class SplitSharing(Operator):
     def __init__(self):
         super().__init__("SplitSharing")
@@ -172,3 +186,45 @@ class Swish(Operator):
     def infer_result(self, x, scale=1.0, dim=-1):
         return x
 
+
+class Cast(Operator):
+    def __init__(self):
+        super().__init__("Cast")
+    
+    def infer_result(self, x, out_dtype):
+        return x.to(out_dtype)
+
+class Sin(Operator):
+    def __init__(self):
+        super().__init__("Sin")
+    
+    def infer_result(self, x):
+        return x.sin()
+
+class Cos(Operator):
+    def __init__(self):
+        super().__init__("Cos")
+    
+    def infer_result(self, x):
+        return x.cos()
+
+class Concat(Operator):
+    def __init__(self):
+        super().__init__("Concat")
+    
+    def infer_result(self, x, dim):
+        return torch.cat(x, dim)
+
+class BatchMatMul(Operator):
+    def __init__(self):
+        super().__init__("BatchMatMul")
+    
+    def infer_result(self, x1, x2):
+        return x1 @ x2
+
+class Gather(Operator):
+    def __init__(self):
+        super().__init__("Gather")
+    
+    def infer_result(self, x1, x2, axis):
+        return torch.ops.aten.embedding.default(x1, x2, axis)

@@ -144,7 +144,6 @@ def get_ascend_dtype_num(dtype: str):
     else:
         raise RuntimeError(f"unknow torch data type ({dtype}) in get_ascend_dtype_num!")
 
-
 def get_ascend_dtype(dtype: torch.dtype) -> str:
     if dtype == torch.bool:
         return "BOOL"

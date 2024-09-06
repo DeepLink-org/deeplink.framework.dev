@@ -79,6 +79,10 @@ class ElewiseParam:
     mulsParam: MulsParam = field(default_factory=MulsParam)
     outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
 
+@dataclass
+class AclNnCastParam:
+    name: str = ''
+    outTensorType: AclDataType = AclDataType.ACL_DT_UNDEFINED
 
 class RmsNormType(IntEnum):
     RMS_NORM_UNDEFINED = 0
@@ -223,6 +227,7 @@ class AddRmsNormParam:
 
 @dataclass
 class TransposeParam:
+    name: str
     perm: list[int]
 
 
@@ -270,11 +275,32 @@ class GeLUMode(IntEnum):
     NONE_MODE = 1
 
 @dataclass
+class ConcatParam:
+    concatDim: int = 0
+
+@dataclass
+class AclNnConcatParam:
+    name: str = ''
+    concatDim: int = 0
+    inputNum: int = 0
+
+@dataclass
 class ActivationParam:
     activationType: str = "ACTIVATION_UNDEFINED"
     scale: float = 1.0  # for Swish
     dim: int = -1       # for Swiglu
     geluMode: GeLUMode = GeLUMode.TANH_MODE
+
+@dataclass
+class BatchMatMulParam:
+    name: str = ''
+    cubeMathType: int = 1
+
+@dataclass
+class GatherParam:
+    name: str = ''
+    axis : int = 0
+    batchDims: int = 0
 
 def custom_asdict_factory(data):
     def convert_value(obj):

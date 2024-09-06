@@ -5,7 +5,9 @@ from torch.fx.node import Node
 from torch.utils._pytree import tree_map_only
 from torch._inductor.utils import IndentedBuffer
 import dicp.vendor.AtbGraph.codegen.atb_infer_param as infer_param
-from dicp.vendor.AtbGraph.codegen.atb_graph import Operation, GetItemOperation, GraphOpearation, InplaceOperation, ViewOperation, TupleOperation
+from dicp.vendor.AtbGraph.codegen.atb_graph import Operation, SqueezeOperation, GetItemOperation, GraphOpearation, UnsqueezeOperation, InplaceOperation, ViewOperation, TupleOperation
+from dicp.vendor.AtbGraph.codegen.utils import get_acl_dtype
+
 
 class AtbOverrides:
     @staticmethod
@@ -183,9 +185,10 @@ class AtbOverrides:
         return op
 
     def Transpose(name, x, perm):
-        op = Operation(name, "TransposeOperation")
-        param = infer_param.TransposeParam(perm)
-        # param.perm = perm
+        op = Operation(name, "AclNnPermuteOperation")
+        # op = Operation(name, "TransposeOperation")
+        param = infer_param.TransposeParam(name, perm)
+
         op.set_param(param)
         op.set_input([x])
         op.set_output([name])
@@ -230,5 +233,100 @@ class AtbOverrides:
         param.dim = dim
         op.set_param(param)
         op.set_input([x])
+        op.set_output([name])
+        return op
+
+    @staticmethod
+    def Cast(name, x, out_dtype):
+        # op = Operation(name, "ElewiseOperation")
+        # param = infer_param.ElewiseParam()
+        # param.elewiseType = infer_param.ElewiseType.ELEWISE_CAST
+
+        op = Operation(name, "AclNnCastOperation")
+        param = infer_param.AclNnCastParam()
+        param.name = name
+        acl_dtype = get_acl_dtype(out_dtype)
+        param.outTensorType = acl_dtype
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    @staticmethod
+    def Sin(name, x):
+        op = Operation(name, "ElewiseOperation")
+        param = infer_param.ElewiseParam()
+        param.elewiseType = infer_param.ElewiseType.ELEWISE_SIN
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    @staticmethod
+    def Cos(name, x):
+        op = Operation(name, "ElewiseOperation")
+        param = infer_param.ElewiseParam()
+        param.elewiseType = infer_param.ElewiseType.ELEWISE_COS
+
+        op.set_input([x])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    @staticmethod
+    def Concat(name, x, dim):
+        op = Operation(name, "AclNnCatOperation")
+        param = infer_param.AclNnConcatParam()
+        param.name = name
+        param.concatDim = dim
+        param.inputNum = len(x)
+
+        op.set_input(x)
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    @staticmethod
+    def BatchMatMul(name, x1, x2):
+        op = Operation(name, "AclNnBatchMatMulOperation")
+        param = infer_param.BatchMatMulParam()
+        param.cubeMathType = 1
+        param.name = name
+
+        op.set_input([x1, x2])
+        op.set_param(param)
+        op.set_output([name])
+        return op
+
+    def Unsqueeze(name, input, dim):
+        op = UnsqueezeOperation(name)
+        op.add_input(input)
+        op.add_output(name)
+        op.dim = [dim]
+        op.target_reshape_info = {
+            "reshapeType": "unsqueeze",
+            "dim": [dim],
+        }
+        return op
+
+    def Squeeze(name, input, dim):
+        op = SqueezeOperation(name)
+        op.add_input(input)
+        op.add_output(name)
+        op.dim = [dim]
+        op.target_reshape_info = {
+            "reshapeType": "squeeze",
+            "dim": [dim],
+        }
+        return op
+
+    def Gather(name, x1, x2, axis):
+        op = Operation(name, "GatherOperation")
+        param = infer_param.GatherParam()
+        param.axis = axis
+
+        op.set_input([x1, x2])
+        op.set_param(param)
         op.set_output([name])
         return op
