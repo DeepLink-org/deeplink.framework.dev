@@ -16,16 +16,10 @@ if is_torch_210:
 def atbgraph_opset_convert(
     gm: torch.fx.GraphModule,
 ):
-    # gm.print_readable()
-    # import pdb;pdb.set_trace()
     gm = BackendPatternMatcherTransformer(
-        atb_pattern_matcher, torch_patterns_cls_list_3).transform(gm)
-    # gm.print_readable()
-    # import pdb;pdb.set_trace()
-
+        atb_pattern_matcher, torch_patterns_cls_list_1).transform(gm)
     # gm = BackendPatternMatcherTransformer(
-    #     atb_pattern_matcher, torch_patterns_cls_list_1).transform(gm)
-
+    #     atb_pattern_matcher, torch_patterns_cls_list_3).transform(gm)
 
     gm = AtenToAtbTransformer(gm).transform()
 

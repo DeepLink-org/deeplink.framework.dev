@@ -25,68 +25,82 @@ aten = torch.ops.aten
 atb = torch.ops.atb
 infer_ext = torch.ops.infer_ext
 
-@register_torch_pattern_1
-class TorchAddRmsNorm(BackendPatternBase):
-    @staticmethod
-    def pattern(arg0, arg1, gamma, epsilon):
-        add = torch.ops.atb.add.default(arg0, arg1)
-        norm = torch.ops.infer_ext.rms_norm.default(add, gamma, epsilon)
-        return norm
-
-    @staticmethod
-    def replacement(arg0, arg1, gamma, epsilon):
-        add_and_norm = torch.ops.atb.add_and_rms_norm.default(arg0, arg1, gamma, epsilon)
-        return add_and_norm
 
 @register_torch_pattern_1
-class TorchViewAndRope(BackendPatternBase):
+class TorchFlattenAndUnflatten(BackendPatternBase):
     @staticmethod
-    def pattern(query, key, cos, sin, seqlen, view_size):
-        query = aten.view(query, [-1, view_size])
-        key = aten.view(key, [-1, view_size])
-        rope = atb.rope.default(query, key, cos, sin, seqlen)
-        return rope
+    def pattern(linear, sym_dim, qkv_dim, head_num, head_dim):
+        sym_size = torch.ops.aten.sym_size(linear, sym_dim)
+        view_1 = torch.ops.aten.view.default(linear, [sym_size, qkv_dim])
+        view_2 = torch.ops.aten.view.default(view_1, [sym_size, head_num, head_dim])
+        return view_2
 
     @staticmethod
-    def replacement(query, key, cos, sin, seqlen, view_size):
-        rope = atb.view_and_rope.default(query, key, cos, sin, seqlen, view_size)
-        return rope
+    def replacement(linear, sym_dim, qkv_dim, head_num, head_dim):
+        view = torch.ops.aten.view.default(linear, [-1, head_num, head_dim])
+        return view
+
+# @register_torch_pattern_1
+# class TorchAddRmsNorm(BackendPatternBase):
+#     @staticmethod
+#     def pattern(arg0, arg1, gamma, epsilon):
+#         add = torch.ops.atb.add.default(arg0, arg1)
+#         norm = torch.ops.infer_ext.rms_norm.default(add, gamma, epsilon)
+#         return norm
+
+#     @staticmethod
+#     def replacement(arg0, arg1, gamma, epsilon):
+#         add_and_norm = torch.ops.atb.add_and_rms_norm.default(arg0, arg1, gamma, epsilon)
+#         return add_and_norm
+
+# @register_torch_pattern_1
+# class TorchViewAndRope(BackendPatternBase):
+#     @staticmethod
+#     def pattern(query, key, cos, sin, seqlen, view_size):
+#         query = aten.view(query, [-1, view_size])
+#         key = aten.view(key, [-1, view_size])
+#         rope = atb.rope.default(query, key, cos, sin, seqlen)
+#         return rope
+
+#     @staticmethod
+#     def replacement(query, key, cos, sin, seqlen, view_size):
+#         rope = atb.view_and_rope.default(query, key, cos, sin, seqlen, view_size)
+#         return rope
 
 
-@register_torch_pattern_1
-class TorchFillKVCacaheAndContextAttention(BackendPatternBase):
-    @staticmethod
-    def pattern(query, key, value, k_cache, v_cache, kv_start_indices_1d, kv_seqlens_int, mask, num_heads, num_kv_heads, kv_head_size, block_size, hidden_size, llama_num_heads, llama_head_dim):
-        query = aten.view.default(query, [-1, llama_num_heads, llama_head_dim])
-        key = aten.view.default(key, [-1, llama_num_heads, llama_head_dim])
-        k_cache = aten.view.default(k_cache, [-1, block_size, num_kv_heads, kv_head_size])
-        v_cache = aten.view.default(v_cache, [-1, block_size, num_kv_heads, kv_head_size])
-        fill_kv_cache = infer_ext.fill_kv_cache.default(key, value, k_cache, v_cache, kv_start_indices_1d)
-        getitem_1 = fill_kv_cache[0]
-        getitem_2 = fill_kv_cache[1]
+# @register_torch_pattern_1
+# class TorchFillKVCacaheAndContextAttention(BackendPatternBase):
+#     @staticmethod
+#     def pattern(query, key, value, k_cache, v_cache, kv_start_indices_1d, kv_seqlens_int, mask, num_heads, num_kv_heads, kv_head_size, block_size, hidden_size, llama_num_heads, llama_head_dim):
+#         query = aten.view.default(query, [-1, llama_num_heads, llama_head_dim])
+#         key = aten.view.default(key, [-1, llama_num_heads, llama_head_dim])
+#         k_cache = aten.view.default(k_cache, [-1, block_size, num_kv_heads, kv_head_size])
+#         v_cache = aten.view.default(v_cache, [-1, block_size, num_kv_heads, kv_head_size])
+#         fill_kv_cache = infer_ext.fill_kv_cache.default(key, value, k_cache, v_cache, kv_start_indices_1d)
+#         getitem_1 = fill_kv_cache[0]
+#         getitem_2 = fill_kv_cache[1]
         
-        query = aten.view.default(query, [-1, hidden_size])
-        key = aten.view.default(key, [-1, hidden_size])
-        value = aten.view.default(value, [-1, hidden_size])
-        attn_out = atb.context_attention.default(query, key, value, getitem_1, getitem_2, kv_seqlens_int, mask, num_heads, num_kv_heads)
-        return attn_out
+#         query = aten.view.default(query, [-1, hidden_size])
+#         key = aten.view.default(key, [-1, hidden_size])
+#         value = aten.view.default(value, [-1, hidden_size])
+#         attn_out = atb.context_attention.default(query, key, value, getitem_1, getitem_2, kv_seqlens_int, mask, num_heads, num_kv_heads)
+#         return attn_out
 
-    @staticmethod
-    def replacement(query, key, value, k_cache, v_cache, kv_start_indices_1d, kv_seqlens_int, mask, num_heads, num_kv_heads, kv_head_size, block_size):
-        out = atb.atb_context_attention.default(query,
-                                                          key,
-                                                          value,
-                                                          k_cache,
-                                                          v_cache,
-                                                          kv_start_indices_1d,
-                                                          kv_seqlens_int,
-                                                          mask,
-                                                          num_heads,
-                                                          num_kv_heads,
-                                                          kv_head_size,
-                                                          block_size)
-        return out
-
+#     @staticmethod
+#     def replacement(query, key, value, k_cache, v_cache, kv_start_indices_1d, kv_seqlens_int, mask, num_heads, num_kv_heads, kv_head_size, block_size):
+#         out = atb.atb_context_attention.default(query,
+#                                                           key,
+#                                                           value,
+#                                                           k_cache,
+#                                                           v_cache,
+#                                                           kv_start_indices_1d,
+#                                                           kv_seqlens_int,
+#                                                           mask,
+#                                                           num_heads,
+#                                                           num_kv_heads,
+#                                                           kv_head_size,
+#                                                           block_size)
+#         return out
 
 @register_torch_pattern_2
 class TorchFused(BackendPatternBase):
@@ -349,8 +363,6 @@ class TorchLLamaPrefill2(BackendPatternBase):
                                                   block_size)
         return out
 
-
-
 @register_torch_pattern_3
 class TorchLLamaDecode1(BackendPatternBase):
     @staticmethod
@@ -464,7 +476,6 @@ class TorchLLamaDecode1(BackendPatternBase):
                                                             block_size)
         return out
 
-
 @register_torch_pattern_3
 class TorchLLamaDecode2(BackendPatternBase):
     @staticmethod
@@ -573,8 +584,6 @@ class TorchLLamaDecode2(BackendPatternBase):
                                                             llama_head_dim,
                                                             block_size)
         return out
-
-
 
 # @register_torch_pattern_3
 # class TorchLLamaPrefill3(BackendPatternBase):

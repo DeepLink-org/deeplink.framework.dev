@@ -544,10 +544,6 @@ def parse_graph(graph,
     for tensor in all_tensors:
         if tensor not in node_inputs and tensor not in node_outputs:
             node_internals.append(tensor)
-    # print('node_inputs:', node_inputs)
-    # print('node_outputs:', node_outputs)
-    # print('node_internals:', node_internals)
-    
     graph.set_inputs(node_inputs)
     graph.set_outputs(node_outputs)
     graph.set_internals(node_internals)

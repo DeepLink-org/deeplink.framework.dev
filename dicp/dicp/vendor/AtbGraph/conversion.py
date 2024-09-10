@@ -858,3 +858,23 @@ class AtenToAtbTransformer(SingleOpTransformer):
     @register_conversion(torch.ops.aten.squeeze.dim)
     def squeeze(self, x, dim):
         return self.get_proxy(atb_op.Squeeze, (x, dim))
+
+    @register_conversion(torch.ops.aten.select.int)
+    def select_int(self, x, dim, index):
+        try:
+            x_shape = x.node.meta['val'].shape
+            first_dim = x_shape[0]
+            if first_dim == 1 and dim == 0 and index == 0:
+                # FIX(tangzhiyi):
+                # Here, the "squeeze" operation should be used, but currently,
+                # the AscendATB processing of InputReshape changes the original
+                # tensor's descriptor. This leads to the squeeze operation being
+                # called multiple times. A temporary solution is to use "view"
+                # instead of "squeeze".
+                # return self.get_proxy(atb_op.Squeeze, (x, 0))
+                view_shape = [-1 if isinstance(x, torch.SymInt) else x for x in x_shape]
+                del view_shape[0]
+                return self.get_proxy(atb_op.View, (x, view_shape))
+        except Exception as e:
+            pass
+        raise RuntimeError(f'torch.ops.aten.select.int not support {dim} {index} yet!')
