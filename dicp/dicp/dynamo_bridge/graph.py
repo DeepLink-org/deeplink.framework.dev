@@ -41,14 +41,15 @@ class GraphTransformer:
     def transform(self):
         self.gm = self.backend_opset_transform(self.gm)
 
-    def infer_shape_dtype(self):
+    @staticmethod
+    def infer_shape_dtype(gm: torch.fx.GraphModule):
         def make_tensor_meta(x) -> Optional[TensorMetadata]:
             if isinstance(x, FakeTensor):
                 return _extract_tensor_metadata(x)
             else:
                 return None
         test_infer = bool(os.environ.get("TEST_DICP_INFER", False))
-        for n in self.gm.graph.nodes:
+        for n in gm.graph.nodes:
             fake_value = None
             if n.op == 'call_function':
                 try:
@@ -58,7 +59,7 @@ class GraphTransformer:
                     pass
             elif n.op == 'get_attr':
                 target_atoms = n.target.split('.')
-                attr_itr = self.gm
+                attr_itr = gm
                 for i, atom in enumerate(target_atoms):
                     if not hasattr(attr_itr, atom):
                         raise RuntimeError(

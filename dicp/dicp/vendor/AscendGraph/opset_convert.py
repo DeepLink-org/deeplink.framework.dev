@@ -90,7 +90,7 @@ def ascendgraph_opset_convert(
     # For bug in pytorch
     # Avoid for dynamic shape
     gt = GraphTransformer(gm, "ascendgraph")
-    gt.infer_shape_dtype()
+    gt.infer_shape_dtype(gt.gm)
     gm = gt.gm
     if is_torch_210 and not symint_in_inputs(list(gm.graph.nodes)):
         gm = BackendPatternMatcherTransformer(

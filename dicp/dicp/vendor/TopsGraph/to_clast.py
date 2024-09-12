@@ -515,7 +515,9 @@ class TopsMemoryFormatTransformer():
     def transform(self, gm: torch.fx.GraphModule):
         if os.getenv("DICP_SD_CLAST", default="False") == "True":
             gm = ConvolutionTransofrmer(gm).transform()
-            GraphTransformer(gm, "topsgraph").infer_shape_dtype()
+            gt = GraphTransformer(gm, "topsgraph")
+            gt.infer_shape_dtype(gt.gm)
             gm = ChannelsLastTransformer(gm).transform()
-            GraphTransformer(gm, "topsgraph").infer_shape_dtype()
+            gt = GraphTransformer(gm, "topsgraph")
+            gt.infer_shape_dtype(gt.gm)
         return gm

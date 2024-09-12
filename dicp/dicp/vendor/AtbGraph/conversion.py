@@ -13,6 +13,7 @@ from torch.types import (
 )
 import numpy as np
 import sympy
+import torch.fx
 import torch.fx.traceback as fx_traceback
 from torch.fx.immutable_collections import immutable_list
 from torch._subclasses import FakeTensor
@@ -118,7 +119,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def identity(self, x, idx):
         return self.get_proxy(atb_op.GetItem, (x, idx))
 
-    @register_conversion(torch.ops.infer_ext.rms_norm.default)
+    @register_conversion(torch.ops.dlinfer.rms_norm.default)
     def npu_rms_norm(self, x, w, eps=1e-6):
         rms_norm = self.get_proxy(atb_op.RmsNorm, (x, w, eps))
         return rms_norm
@@ -142,7 +143,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
         inplace = self.get_proxy(atb_op.Inplace, (out, query))
         return out
 
-    @register_conversion([torch.ops.atb.fill_kv_cache.default, torch.ops.infer_ext.fill_kv_cache.default])
+    @register_conversion([torch.ops.atb.fill_kv_cache.default, torch.ops.dlinfer.fill_kv_cache.default])
     def fill_kv_cache(self, key, value, key_cache, value_cache, kv_indices):
         out = self.get_proxy(atb_op.ReshapeAndCache, (key, value, key_cache, value_cache, kv_indices))
         inplace_1 = self.get_proxy(atb_op.Inplace, (out, key_cache, 0))
@@ -237,8 +238,8 @@ class AtenToAtbTransformer(SingleOpTransformer):
         graph = self.get_proxy(atb_op.Graph, (add, norm), {"output": norm})
         return norm
 
-    @register_conversion(torch.ops.infer_ext.add_rms_norm.default)
-    def infer_ext_add_rms_norm(self, x1, x2, gamma, epsilon):
+    @register_conversion(torch.ops.dlinfer.add_rms_norm.default)
+    def dlinfer_add_rms_norm(self, x1, x2, gamma, epsilon):
         out = self.get_proxy(atb_op.AddRmsNorm, (x1, x2, gamma, epsilon))
         y_out = self.get_proxy(atb_op.GetItem, (out, 0))
         x_out = self.get_proxy(atb_op.GetItem, (out, 2))
@@ -269,7 +270,7 @@ class AtenToAtbTransformer(SingleOpTransformer):
     def cat(self, x, dim):
         return self.get_proxy(atb_op.Concat, (x, dim))
 
-    @register_conversion(torch.ops.atb.bmm.default)
+    @register_conversion(torch.ops.aten.bmm.default)
     def bmm(self, x1, x2):
         out = self.get_proxy(atb_op.BatchMatMul, (x1, x2))
         return out
@@ -878,3 +879,16 @@ class AtenToAtbTransformer(SingleOpTransformer):
         except Exception as e:
             pass
         raise RuntimeError(f'torch.ops.aten.select.int not support {dim} {index} yet!')
+
+class ViewRemoveSymSizeTransformer(torch.fx.Transformer):
+    def call_function(self, target, args, kwargs):
+        if target == torch.ops.aten.view.default:
+            unstable_shape_flag  = [0 if (isinstance(shape, int) and shape != -1) else 1 for shape in args[1]]
+            sym_size_count = sum(unstable_shape_flag)
+            if sym_size_count == 1:
+                target_index = unstable_shape_flag.index(1)
+                new_args_1 = list(args[1])
+                new_args_1[target_index] = -1
+                new_args = (args[0], new_args_1)
+                return super().call_function(target, new_args, kwargs)
+        return super().call_function(target, args, kwargs)

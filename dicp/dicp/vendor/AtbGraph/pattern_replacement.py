@@ -23,29 +23,42 @@ register_torch_pattern_3 = functools.partial(
 
 aten = torch.ops.aten
 atb = torch.ops.atb
-infer_ext = torch.ops.infer_ext
-
+dlinfer = torch.ops.dlinfer
 
 @register_torch_pattern_1
-class TorchFlattenAndUnflatten(BackendPatternBase):
+class TorchLinear(BackendPatternBase):
     @staticmethod
-    def pattern(linear, sym_dim, qkv_dim, head_num, head_dim):
-        sym_size = torch.ops.aten.sym_size(linear, sym_dim)
-        view_1 = torch.ops.aten.view.default(linear, [sym_size, qkv_dim])
-        view_2 = torch.ops.aten.view.default(view_1, [sym_size, head_num, head_dim])
-        return view_2
+    def pattern(x_input, weight, viewed_input_last_shape, viewed_output_last_shape):
+        trans_weight = torch.ops.aten.t.default(weight)
+        viewed_input = torch.ops.aten.view.default(x_input, [-1, viewed_input_last_shape])
+        mm_result = torch.ops.aten.mm.default(viewed_input, trans_weight)
+        viewed_mm_result = torch.ops.aten.view.default(mm_result, [1, -1, viewed_output_last_shape])
+        return viewed_mm_result
+    
+    @staticmethod
+    def replacement(x_input, weight):
+        return torch.ops.atb.linear.default(x_input, weight, None, False, True)
 
-    @staticmethod
-    def replacement(linear, sym_dim, qkv_dim, head_num, head_dim):
-        view = torch.ops.aten.view.default(linear, [-1, head_num, head_dim])
-        return view
+# @register_torch_pattern_1
+# class TorchFlattenAndUnflatten(BackendPatternBase):
+#     @staticmethod
+#     def pattern(linear, sym_dim, qkv_dim, head_num, head_dim):
+#         sym_size = torch.ops.aten.sym_size(linear, sym_dim)
+#         view_1 = torch.ops.aten.view.default(linear, [sym_size, qkv_dim])
+#         view_2 = torch.ops.aten.view.default(view_1, [sym_size, head_num, head_dim])
+#         return view_2
+
+#     @staticmethod
+#     def replacement(linear, sym_dim, qkv_dim, head_num, head_dim):
+#         view = torch.ops.aten.view.default(linear, [-1, head_num, head_dim])
+#         return view
 
 # @register_torch_pattern_1
 # class TorchAddRmsNorm(BackendPatternBase):
 #     @staticmethod
 #     def pattern(arg0, arg1, gamma, epsilon):
 #         add = torch.ops.atb.add.default(arg0, arg1)
-#         norm = torch.ops.infer_ext.rms_norm.default(add, gamma, epsilon)
+#         norm = torch.ops.dlinfer.rms_norm.default(add, gamma, epsilon)
 #         return norm
 
 #     @staticmethod
@@ -76,7 +89,7 @@ class TorchFlattenAndUnflatten(BackendPatternBase):
 #         key = aten.view.default(key, [-1, llama_num_heads, llama_head_dim])
 #         k_cache = aten.view.default(k_cache, [-1, block_size, num_kv_heads, kv_head_size])
 #         v_cache = aten.view.default(v_cache, [-1, block_size, num_kv_heads, kv_head_size])
-#         fill_kv_cache = infer_ext.fill_kv_cache.default(key, value, k_cache, v_cache, kv_start_indices_1d)
+#         fill_kv_cache = dlinfer.fill_kv_cache.default(key, value, k_cache, v_cache, kv_start_indices_1d)
 #         getitem_1 = fill_kv_cache[0]
 #         getitem_2 = fill_kv_cache[1]
         
@@ -162,7 +175,7 @@ class TorchLLamaPrefill1(BackendPatternBase):
         down,
         rms_norm_3_gamma, eps_3,
     ):
-        rms_norm = infer_ext.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
+        rms_norm = dlinfer.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
         linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
         view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
         split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
@@ -181,7 +194,7 @@ class TorchLLamaPrefill1(BackendPatternBase):
         
         view_5 = aten.view.default(k_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
         view_6 = aten.view.default(v_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
-        fill_kv_cache = infer_ext.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
+        fill_kv_cache = dlinfer.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
         getitem_5 = fill_kv_cache[0]
         getitem_6 = fill_kv_cache[1]
 
@@ -194,11 +207,11 @@ class TorchLLamaPrefill1(BackendPatternBase):
         linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
         
         add = atb.add.default(linear_1, hidden_states)
-        rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
+        rms_norm_1 = dlinfer.rms_norm.default(add, rms_norm_2_gamma, eps_2)
         
         mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
         add_1 = atb.add.default(mlp_gate, add)
-        rms_norm_2 = infer_ext.rms_norm.default(add_1, rms_norm_3_gamma, eps_3)
+        rms_norm_2 = dlinfer.rms_norm.default(add_1, rms_norm_3_gamma, eps_3)
         return rms_norm_2
 
     @staticmethod
@@ -278,7 +291,7 @@ class TorchLLamaPrefill2(BackendPatternBase):
         gate_up,
         down,
     ):
-        rms_norm = infer_ext.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
+        rms_norm = dlinfer.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
         linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
         view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
         split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
@@ -297,7 +310,7 @@ class TorchLLamaPrefill2(BackendPatternBase):
         
         view_5 = aten.view.default(k_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
         view_6 = aten.view.default(v_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
-        fill_kv_cache = infer_ext.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
+        fill_kv_cache = dlinfer.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
         getitem_5 = fill_kv_cache[0]
         getitem_6 = fill_kv_cache[1]
 
@@ -310,7 +323,7 @@ class TorchLLamaPrefill2(BackendPatternBase):
         linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
         
         add = atb.add.default(linear_1, hidden_states)
-        rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
+        rms_norm_1 = dlinfer.rms_norm.default(add, rms_norm_2_gamma, eps_2)
         
         mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
         add_1 = atb.add.default(mlp_gate, add)
@@ -391,7 +404,7 @@ class TorchLLamaDecode1(BackendPatternBase):
         down,
         rms_norm_3_gamma, eps_3,
     ):
-        rms_norm = infer_ext.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
+        rms_norm = dlinfer.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
         linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
         view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
         split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
@@ -410,7 +423,7 @@ class TorchLLamaDecode1(BackendPatternBase):
         
         view_5 = aten.view.default(k_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
         view_6 = aten.view.default(v_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
-        fill_kv_cache = infer_ext.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
+        fill_kv_cache = dlinfer.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
         getitem_5 = fill_kv_cache[0]
         getitem_6 = fill_kv_cache[1]
 
@@ -420,11 +433,11 @@ class TorchLLamaDecode1(BackendPatternBase):
         linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
         
         add = atb.add.default(linear_1, hidden_states)
-        rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
+        rms_norm_1 = dlinfer.rms_norm.default(add, rms_norm_2_gamma, eps_2)
         
         mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
         add_1 = atb.add.default(mlp_gate, add)
-        rms_norm_2 = infer_ext.rms_norm.default(add_1, rms_norm_3_gamma, eps_3)
+        rms_norm_2 = dlinfer.rms_norm.default(add_1, rms_norm_3_gamma, eps_3)
         return rms_norm_2
 
     @staticmethod
@@ -503,7 +516,7 @@ class TorchLLamaDecode2(BackendPatternBase):
         gate_up,
         down
     ):
-        rms_norm = infer_ext.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
+        rms_norm = dlinfer.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
         linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
         view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
         split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
@@ -522,7 +535,7 @@ class TorchLLamaDecode2(BackendPatternBase):
         
         view_5 = aten.view.default(k_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
         view_6 = aten.view.default(v_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
-        fill_kv_cache = infer_ext.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
+        fill_kv_cache = dlinfer.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
         getitem_5 = fill_kv_cache[0]
         getitem_6 = fill_kv_cache[1]
 
@@ -532,7 +545,7 @@ class TorchLLamaDecode2(BackendPatternBase):
         linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
         
         add = atb.add.default(linear_1, hidden_states)
-        rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
+        rms_norm_1 = dlinfer.rms_norm.default(add, rms_norm_2_gamma, eps_2)
         
         mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
         add_1 = atb.add.default(mlp_gate, add)
@@ -614,7 +627,7 @@ class TorchLLamaDecode2(BackendPatternBase):
 #         down,
 #     ):
 #         # residual2 = atb.add.default(hidden_states, residual)
-#         rms_norm = infer_ext.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
+#         rms_norm = dlinfer.rms_norm.default(hidden_states, rms_norm_1_gamma, eps_1)
 #         linear = atb.linear.default(rms_norm, qkv_weight, None, False, True)
 #         view = aten.view.default(linear, [-1, all_heads, llama_head_dim])
 #         split = aten.split_with_sizes.default(view, [llama_num_heads, llama_num_kv_heads, llama_num_kv_heads], 1)
@@ -633,7 +646,7 @@ class TorchLLamaDecode2(BackendPatternBase):
         
 #         view_5 = aten.view.default(k_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
 #         view_6 = aten.view.default(v_cache, [-1, block_size, attn_num_kv_heads, attn_v_head_size])
-#         fill_kv_cache = infer_ext.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
+#         fill_kv_cache = dlinfer.fill_kv_cache.default(view_4, getitem_2, view_5, view_6, kv_start_indices_1d)
 #         getitem_5 = fill_kv_cache[0]
 #         getitem_6 = fill_kv_cache[1]
 
@@ -646,7 +659,7 @@ class TorchLLamaDecode2(BackendPatternBase):
 #         linear_1 = atb.linear.default(view_10, o_weight, None, False, True)
         
 #         add = atb.add.default(linear_1, hidden_states)
-#         rms_norm_1 = infer_ext.rms_norm.default(add, rms_norm_2_gamma, eps_2)
+#         rms_norm_1 = dlinfer.rms_norm.default(add, rms_norm_2_gamma, eps_2)
         
 #         mlp_gate = atb.mlp_gate.default(rms_norm_1, gate_up, down)
 #         add_1 = atb.add.default(mlp_gate, add)
