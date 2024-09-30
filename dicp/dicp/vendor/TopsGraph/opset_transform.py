@@ -4,9 +4,9 @@ import os
 
 from dicp.vendor.TopsGraph.conversion import AtenToTopsTransformer
 from dicp.vendor.TopsGraph.to_clast import TopsMemoryFormatTransformer
-from dicp.dynamo_bridge.compile_fx import is_torch_210
+from dicp.dynamo_bridge.torch_version import is_torch_210_or_higher
 
-if is_torch_210:
+if is_torch_210_or_higher:
     from dicp.dynamo_bridge.op_transformer import BackendPatternMatcherTransformer
     from dicp.vendor.TopsGraph.conversion import tops_patterns, tops_patterns_cls_list
 
@@ -41,7 +41,7 @@ def topsgraph_opset_transform(
     gm = AtenToTopsTransformer(gm).transform()
 
     # Ntops to Mtops
-    if is_torch_210:
+    if is_torch_210_or_higher:
         gm = BackendPatternMatcherTransformer(
             tops_patterns, tops_patterns_cls_list).transform(gm)
 

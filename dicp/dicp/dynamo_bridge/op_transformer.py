@@ -5,7 +5,7 @@ from torch.fx.node import Argument, Target
 import torch.fx.traceback as fx_traceback
 from torch.fx.proxy import Proxy
 from typing import Any, Dict, Tuple
-from dicp.dynamo_bridge.compile_fx import is_torch_210
+from dicp.dynamo_bridge.torch_version import is_torch_210_or_higher
 from dicp.dynamo_bridge.utils import symint_in_shape
 
 
@@ -82,13 +82,15 @@ class SingleOpTransformer(torch.fx.Transformer):
         return proxy
 
 
-if is_torch_210:
+if is_torch_210_or_higher:
     import functools
+    import inspect
     from typing import List
     from torch.fx.experimental.proxy_tensor import maybe_disable_fake_tensor_mode
     from torch._subclasses.fake_tensor import FakeTensorMode
     from torch._inductor.pattern_matcher import (
         PatternMatcherPass,
+        Match,
         stable_topological_sort,
         register_replacement,
     )
@@ -97,6 +99,8 @@ if is_torch_210:
         return torch.fx.symbolic_trace(fn)
 
     class BackendPatternBase:
+        trace_fn = symbolic_trace_ignore_args
+
         @staticmethod
         def pattern(*args, **kwargs):
             raise NotImplementedError("pattern is not implemented")
@@ -109,21 +113,37 @@ if is_torch_210:
         def gen_args(cls):
             return [None] * (cls.pattern.__code__.co_argcount)
 
-        @staticmethod
-        def check_fn(match):
+        @classmethod
+        def gen_tensor(cls, shape=(10, 10), dtype=torch.float16):
+            return torch.empty(shape, dtype=dtype, device="cuda")
+
+        @classmethod
+        def check_fn(cls, match: Match):
+            if match.replacement_graph is None:
+                argnames = [*inspect.signature(cls.pattern).parameters.keys()]
+                args = list(
+                    torch.fx.map_arg(
+                        [match.kwargs[name] for name in argnames], lambda n: n.meta["val"]
+                    )
+                )
+                with torch._dynamo.utils.detect_fake_mode(args):
+                    match.replacement_graph = cls.trace_fn(cls.replacement, cls.gen_args())
             return True
 
         @classmethod
         @functools.lru_cache(None)
         def register(cls, backend_patterns):
-            register_replacement(
+            pattern_expr = register_replacement(
                 cls.pattern,
                 cls.replacement,
                 cls.gen_args(),
-                symbolic_trace_ignore_args,
+                cls.trace_fn,
                 backend_patterns,
                 extra_check=cls.check_fn,
             )
+            pattern_entries = backend_patterns[pattern_expr.fns[0]]
+            registered_pattern_entry = [entry for entry in pattern_entries if entry.pattern == pattern_expr][0]
+            registered_pattern_entry.extra_check = cls.check_fn
 
     def register_backend_patterns(patterns_cls_list: List[BackendPatternBase], Pattern: BackendPatternBase):
         patterns_cls_list.append(Pattern)

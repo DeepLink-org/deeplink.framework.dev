@@ -21,6 +21,7 @@ from torch.fx.node import (
 from typing import Any, Tuple, Dict, List
 import re
 
+from dicp.dynamo_bridge.torch_version import is_torch_220_or_higher
 
 def python_type_bar(self):
     return type(self.value)
@@ -288,6 +289,6 @@ def _gen_python_code_bar(self, nodes, root_module: str, namespace: _Namespace, *
     fn_code = f"{wrap_stmts}\n{prologue}\n{code}"
     return PythonCode(fn_code, globals_)
 
-
-torch._dynamo.variables.torch.TorchVariable.python_type = python_type_bar
-torch.fx.graph.CodeGen._gen_python_code = _gen_python_code_bar
+if not is_torch_220_or_higher:
+    torch._dynamo.variables.torch.TorchVariable.python_type = python_type_bar
+    torch.fx.graph.CodeGen._gen_python_code = _gen_python_code_bar

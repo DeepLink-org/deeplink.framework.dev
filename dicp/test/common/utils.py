@@ -5,7 +5,7 @@ import random
 import torch._dynamo as dynamo
 import torch_dipu
 from dicp.dynamo_bridge import pt_patch # noqa F401
-from dicp.dynamo_bridge.compile_fx import is_torch_210
+from dicp.dynamo_bridge.compile_fx import is_torch_210_or_higher
 torch.manual_seed(1)
 random.seed(1)
 
@@ -24,7 +24,7 @@ class Size():
 
 def update_dynamo_config(dynamic=False):
     dynamo.config.dynamic_shapes = dynamic
-    if is_torch_210:
+    if is_torch_210_or_higher:
         dynamo.config.assume_static_by_default = not dynamic
 
 

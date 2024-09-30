@@ -9,20 +9,14 @@ import functorch
 import torch.fx
 import importlib
 import os
-from dicp.dynamo_bridge import pt_patch # noqa F401
 
 from typing import List
 from importlib import import_module
 
 import torch
-is_torch_200 = False
-is_torch_210 = False
-if torch.__version__.startswith("2.0"):
-    is_torch_200 = True
-elif torch.__version__.startswith("2.1"):
-    is_torch_210 = True
-else:
-    raise ValueError(f"unsupported dicp torch version: {torch.__version__}")
+
+from dicp.dynamo_bridge import pt_patch # noqa F401
+from dicp.dynamo_bridge.torch_version import is_torch_200, is_torch_210_or_higher
 
 
 log = logging.getLogger(__name__)
@@ -37,7 +31,7 @@ def get_fake_mode_from_tensors(input_tensors):
     if is_torch_200:
         from torch._dynamo.utils import fake_mode_from_tensors
         return fake_mode_from_tensors(input_tensors)
-    elif is_torch_210:
+    elif is_torch_210_or_higher:
         from torch._dynamo.utils import detect_fake_mode
         return detect_fake_mode(input_tensors)
     else:
@@ -99,9 +93,9 @@ def compile_fx(
     backend: str,
     inner_compile=compile_fx_inner,
 ):
-    if torch.__version__.startswith("2.0"):
+    if is_torch_200:
         return compile_fx_200(model_, example_inputs_, backend, inner_compile)
-    elif torch.__version__.startswith("2.1"):
+    elif is_torch_210_or_higher:
         return compile_fx_210(model_, example_inputs_, backend, inner_compile)
     else:
         raise ValueError(

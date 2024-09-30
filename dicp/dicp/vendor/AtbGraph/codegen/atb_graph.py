@@ -1,6 +1,7 @@
 import copy
 import torch
 import json
+from typing import List
 from collections import OrderedDict
 
 import dicp.vendor.AtbGraph.codegen.atb_infer_param as infer_param
@@ -39,19 +40,26 @@ class Operation:
         self.host_inputs = []
         self.has_reshape_inputs = False
         self.reshape_inputs = []
+        self.special_constants_map = {}
     
     def set_input(self, x):
         self.inputs = x
     
     def set_output(self, x):
         self.outputs = x
-    
+
+    def set_special_constants(self, x):
+        self.special_constants_map = x
+
     def add_input(self, x):
         self.inputs.append(x)
     
     def add_output(self, x):
         self.outputs.append(x)
-    
+
+    def add_special_constants(self, param_name, special_call_str):
+        self.special_constants_map[param_name] = special_call_str
+
     def set_param(self, x):
         if not isinstance(x, dict):
             x = infer_param.to_dict(x)
@@ -113,9 +121,10 @@ class SqueezeOperation(Operation):
 
 class GraphOpearation(Operation):
     def __init__(self, name: str):
+        super().__init__(name, "graphOpearation")
         self.op_name = name
         self.op_type = "graphOperation"
-        self.nodes = OrderedDict()
+        self.nodes: OrderedDict[str, Operation] = OrderedDict()
         self.inputs = []
         self.outputs = []
         self.internals = []
@@ -152,7 +161,7 @@ class GraphOpearation(Operation):
     
     def add_internal(self, x):
         self.internals.append(x)
-    
+
     def add_node(self, x):
         self.nodes.append(x)
 
@@ -180,7 +189,8 @@ class Graph:
         self.inputs = []
         self.outputs = []
         self.internals = []
-        self.nodes = OrderedDict()
+        self.special_constants_map: OrderedDict[str, str] = OrderedDict()
+        self.nodes: OrderedDict[str, Operation] = OrderedDict()
         self.hosts = []
     
     def set_hosts(self, x):
@@ -195,6 +205,9 @@ class Graph:
     def set_internals(self, x):
         self.internals = x
 
+    def set_special_constants(self, x):
+        self.special_constants_map = x
+
     def add_input(self, x):
         self.inputs.append(x)
     
@@ -203,10 +216,16 @@ class Graph:
     
     def add_internals(self, x):
         self.internals.append(x)
-    
+
+    def extend_inputs(self, x):
+        self.inputs += x
+
+    def update_special_constants(self, x):
+        self.special_constants_map.update(x)
+
     def add_node(self, x):
         self.nodes[x.op_name] = x
-    
+
     def to_json(self):
         atb_graph = {
             'name': self.name,
@@ -217,7 +236,7 @@ class Graph:
             'hostTensorNames': self.hosts,
             'nodeSize': len(self.nodes),
         }
-        return json.dumps(atb_graph)
+        return json.dumps(atb_graph, sort_keys=True)
 
 def get_input_data_node(node_list, node_name):
     for node in node_list:
@@ -277,7 +296,7 @@ def make_output_tensor_desc(output_names,
     return output_tensor_descs
     
 
-def parse_graph(graph,
+def parse_graph(graph: Graph,
                 input_names,
                 output_names,
                 input_data_nodes,
@@ -332,6 +351,8 @@ def parse_graph(graph,
             real_name = f'{node.inputs[0]}__{node.index}'
             if real_name in tuple_replace.keys():
                 real_name = tuple_replace[real_name]
+            if real_name in getitem_replace.keys():
+                real_name = getitem_replace[real_name]
             getitem_replace[node.outputs[0]] = real_name
             del graph.nodes[name]
     for name in graph.nodes.keys():
@@ -434,9 +455,10 @@ def parse_graph(graph,
         view_replace_name_dict[k] = v.inputs[0]
 
     # graph operation
-    graph_nodes = []
+    graph_nodes: List[GraphOpearation] = []
     for _, node in graph.nodes.items():
-        if node.op_type == "graphOperation":
+        # if node.op_type == "graphOperation":
+        if isinstance(node, GraphOpearation):
             graph_nodes.append(node)
     for graph_node in graph_nodes:
         graph_inputs = []
@@ -455,6 +477,9 @@ def parse_graph(graph,
                 graph_outputs.append(output)
             if node.has_host_inputs:
                 graph_hosts.extend(node.host_inputs)
+            # handle special constant
+            if node.special_constants_map:
+                graph.update_special_constants(node.special_constants_map)
 
         graph_inputs = list(set(graph_inputs))
         graph_outputs = list(set(graph_outputs))
@@ -512,6 +537,9 @@ def parse_graph(graph,
         all_tensors.extend(node.outputs)
         if node.has_host_inputs:
             host_tensors.extend(node.host_inputs)
+        # handle special constant
+        if node.special_constants_map:
+            graph.update_special_constants(node.special_constants_map)
     all_tensors = list(set(all_tensors))
     host_tensors = list(set(host_tensors))
 
@@ -542,7 +570,8 @@ def parse_graph(graph,
         if v in node_inputs and k not in node_outputs:
             node_outputs.append(k)
     for tensor in all_tensors:
-        if tensor not in node_inputs and tensor not in node_outputs:
+        if tensor not in node_inputs and tensor not in node_outputs and \
+                tensor not in graph.special_constants_map:
             node_internals.append(tensor)
     graph.set_inputs(node_inputs)
     graph.set_outputs(node_outputs)
@@ -561,6 +590,7 @@ def parse_graph(graph,
     for idx, tensor in enumerate(py_output_names):
         if tensor in getitem_replace.keys():
             py_output_names[idx] = getitem_replace[tensor]
+    graph.extend_inputs(graph.special_constants_map.keys())
 
     return graph, output_tensor_descs, py_output_names
 

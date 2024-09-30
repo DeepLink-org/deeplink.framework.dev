@@ -4,12 +4,14 @@ from contextlib import contextmanager
 
 import torch
 import torch.fx
-from dicp.dynamo_bridge.compile_fx import is_torch_210
-from dicp.vendor.AtbGraph.conversion import AtenToAtbTransformer, ViewRemoveSymSizeTransformer
 import torch.fx.traceback
+from torch.fx.passes.dialect.common.cse_pass import CSEPass
+
+from dicp.dynamo_bridge.torch_version import is_torch_210_or_higher
+from dicp.vendor.AtbGraph.conversion import AtenToAtbTransformer, ViewSymIntTransformer
 from ...dynamo_bridge.graph import GraphTransformer
 
-if is_torch_210:
+if is_torch_210_or_higher:
     from dicp.dynamo_bridge.op_transformer import BackendPatternMatcherTransformer
     from dicp.vendor.AtbGraph.pattern_replacement import (
         atb_pattern_matcher,
@@ -45,8 +47,11 @@ def atbgraph_opset_convert(
     gm: torch.fx.GraphModule,
 ):
     with preserve_meta_val():
-        gm = ViewRemoveSymSizeTransformer(gm).transform()
+        gm = ViewSymIntTransformer(gm).transform()
         gm.graph.eliminate_dead_code()
+        cse_pass = CSEPass()
+        cse_pass_result = cse_pass(gm)
+        gm = cse_pass_result.graph_module
 
     gm = BackendPatternMatcherTransformer(
         atb_pattern_matcher, torch_patterns_cls_list_1).transform(gm)
@@ -58,5 +63,6 @@ def atbgraph_opset_convert(
     # For bug in pytorch
     # Avoid for dynamic shape
     GraphTransformer.infer_shape_dtype(gm)
+    gm.print_readable()
     return gm
 

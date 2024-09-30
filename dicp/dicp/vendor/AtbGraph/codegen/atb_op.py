@@ -108,6 +108,10 @@ class AtbOverrides:
         param = infer_param.RopeParam()
         param.rotaryCoeff = 2
 
+        if seqlen is None:
+            # special hack for non-input param seqlen
+            seqlen = "rope_seqlen_default"
+            op.add_special_constants(seqlen, 'torch.ones([1], device="npu", dtype=torch.int32)')
         op.set_input([query, key, cos, sin, seqlen])
         op.set_param(param)
         op.set_output([f"{name}__0", f"{name}__1"])

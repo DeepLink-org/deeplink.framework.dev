@@ -7,7 +7,7 @@ from torch.fx import Proxy
 import operator
 import os
 from dicp.dynamo_bridge.op_transformer import SingleOpTransformer
-from dicp.dynamo_bridge.compile_fx import is_torch_210
+from dicp.dynamo_bridge.torch_version import is_torch_210_or_higher
 from dicp.dynamo_bridge.utils import get_cast_dtype
 from typing import (
     Optional,
@@ -693,7 +693,7 @@ tops_patterns_cls_list = []
 register_tops_patterns = functools.partial(
     register_backend_patterns, tops_patterns_cls_list)
 
-if is_torch_210:
+if is_torch_210_or_higher:
     Dot = torch.fx.wrap(tops_op.Dot.get_singleton())
     DotGeneral = torch.fx.wrap(tops_op.DotGeneral.get_singleton())
     Permute = torch.fx.wrap(tops_op.Transpose.get_singleton())

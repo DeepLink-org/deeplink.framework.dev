@@ -372,6 +372,12 @@ class AtbCodegen(torch.fx.Interpreter):
         )
         compile_graph_code.writeline('async_compile.wait(globals())')
         compile_graph_code.writeline('del async_compile')
+
+        # special constant tensor for compiled graph
+        if "rope_seqlen_default" in graph_json:
+            compile_graph_code.writeline('\n')
+            for name, expr in self.atb_graph.special_constants_map.items():
+                compile_graph_code.writeline(f'{name} = {expr}')
         return compile_graph_code.getvalue()
 
     def generate_code(self):

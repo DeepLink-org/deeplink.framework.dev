@@ -28,11 +28,11 @@ dlinfer = torch.ops.dlinfer
 @register_torch_pattern_1
 class TorchLinear(BackendPatternBase):
     @staticmethod
-    def pattern(x_input, weight, viewed_input_last_shape, viewed_output_last_shape):
+    def pattern(x_input, weight, viewed_input_shape, viewed_output_shape):
         trans_weight = torch.ops.aten.t.default(weight)
-        viewed_input = torch.ops.aten.view.default(x_input, [-1, viewed_input_last_shape])
+        viewed_input = torch.ops.aten.view.default(x_input, viewed_input_shape)
         mm_result = torch.ops.aten.mm.default(viewed_input, trans_weight)
-        viewed_mm_result = torch.ops.aten.view.default(mm_result, [1, -1, viewed_output_last_shape])
+        viewed_mm_result = torch.ops.aten.view.default(mm_result, viewed_output_shape)
         return viewed_mm_result
     
     @staticmethod

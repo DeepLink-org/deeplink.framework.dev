@@ -9,6 +9,7 @@ from torch.fx.experimental.symbolic_shapes import ShapeEnv
 from contextlib import nullcontext
 from torch._subclasses import FakeTensor, FakeTensorMode
 from dicp.dynamo_bridge.utils import TensorInfo
+from dicp.dynamo_bridge.torch_version import is_torch_200, is_torch_210_or_higher
 
 
 class Operator(ABC):
@@ -18,14 +19,14 @@ class Operator(ABC):
     def __init__(self, name_):
         super().__init__()
         self.__name__ = name_
-        if torch.__version__.startswith("2.0"):
+        if is_torch_200:
             self.shape_env = ShapeEnv() if config.use_dynamic_shapes else None
             self.fake_mode = (
                 FakeTensorMode(shape_env=self.shape_env)
                 if config.use_fake_tensor
                 else nullcontext()
             )
-        elif torch.__version__.startswith("2.1"):
+        elif is_torch_210_or_higher:
             self.shape_env = ShapeEnv() if torch._dynamo.config.dynamic_shapes else None
             self.fake_mode = (
                 FakeTensorMode(shape_env=self.shape_env)
@@ -77,16 +78,14 @@ class Operator(ABC):
                 return x
             return FakeTensor.from_tensor(x, fake_mode)
 
-        new_args = tree_map(make_faketensor, new_args)
-
         def make_cpu(x):
             if isinstance(x, torch.Tensor):
                 return x.to("cpu")
             return x
 
-        new_args = tree_map(make_cpu, new_args)
-
         with fake_mode:
+            new_args = tree_map(make_faketensor, new_args)
+            new_args = tree_map(make_cpu, new_args)
             try:
                 if hasattr(self, "infer_result"):
                     return self.infer_result(*new_args, **kwargs)
